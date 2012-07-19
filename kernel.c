@@ -3,7 +3,7 @@
 void kmain(void)
 {
    extern uint32_t magic;
-   extern void *mbd;
+   // extern void *mbd;
  
    if ( magic != 0x2BADB002 )
    {
@@ -18,7 +18,7 @@ void kmain(void)
    //char * boot_loader_name =(char*) ((long*)mbd)[16];
  
    /* Print a letter to screen to see everything is working: */
-   unsigned char *videoram = (char *)0xB8000;
+   char *videoram = (char *)0xB8000;
    videoram[0] = 65; /* character 'A' */
    videoram[1] = 0x07; /* light grey (7) on black (0). */
 }

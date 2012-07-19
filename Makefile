@@ -1,3 +1,5 @@
+all: kernel.bin
+
 loader.o: loader.s
 	i386-elf-as -o loader.o loader.s
 
