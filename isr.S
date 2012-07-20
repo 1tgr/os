@@ -46,18 +46,18 @@ isr_switch_ret:
 
 
 #define exception(n) \
-	.globl	_exception_##n ;\
+	.globl	exception_##n ;\
 	\
-_exception_##n: \
+exception_##n: \
 	pushl	$0x##n ;\
 	jmp		isr_and_switch ;\
 	.align	8
 
 
 #define irq(n) \
-	.globl	_irq_##n ;\
+	.globl	irq_##n ;\
 	\
-_irq_##n: \
+irq_##n: \
 	pushl	$-1 ;\
 	pushl	$0x##n; \
 	jmp		isr_and_switch ;\
@@ -65,60 +65,12 @@ _irq_##n: \
 	
 	
 #define interrupt(n) \
-	.globl	_interrupt_##n ;\
+	.globl	interrupt_##n ;\
 	\
-_interrupt_##n: \
+interrupt_##n: \
 	pushl	$0 ;\
 	pushl	$0x##n; \
 	jmp		isr_and_switch ;\
 	.align	8
-	
-	interrupt(0)
-	interrupt(1)
-	interrupt(2)
-	interrupt(3)
-	interrupt(4)
-	interrupt(5)
-	interrupt(6)
-	interrupt(7)
-	interrupt(8)
-	interrupt(9)
-	exception(a)
-	exception(b)
-	exception(c)
-	exception(d)
-	exception(e)
-	interrupt(f)
-	interrupt(10)
-	interrupt(11)
-	interrupt(12)
-	interrupt(13)
-	interrupt(14)
-	interrupt(15)
-	interrupt(16)
-	interrupt(17)
-	interrupt(18)
-	interrupt(19)
-	interrupt(1a)
-	interrupt(1b)
-	interrupt(1c)
-	interrupt(1d)
-	interrupt(1e)
-	interrupt(1f)
-	irq(0)
-	irq(1)
-	irq(2)
-	irq(3)
-	irq(4)
-	irq(5)
-	irq(6)
-	irq(7)
-	irq(8)
-	irq(9)
-	irq(a)
-	irq(b)
-	irq(c)
-	irq(d)
-	irq(e)
-	irq(f)
-	interrupt(30)
+
+#include "interrupt_handlers.h"	
