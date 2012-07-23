@@ -12,27 +12,9 @@ isr_and_switch:
 	xor		%eax, %eax
 	mov		%eax, %cr2
 
-/*
-	mov		$KERNEL_FLAT_DATA, %bx
-	mov		%ebx, %ds
-	mov		%ebx, %es
-	mov		%ebx, %gs
-	mov		$USER_THREAD_INFO, %bx
-	mov		%ebx, %fs
-
-	mov		4 + _thr_cpu_single, %eax
-	mov		(%eax), %eax
-	push	%eax
-*/
-
-	mov		%esp, %ebx
-	push	%ebx
-
 	call	i386_isr
 
-	.globl	isr_switch_ret
-isr_switch_ret:
-	lea		4(%eax), %esp
+	pop     %eax
 
 	popal
 	pop		%gs

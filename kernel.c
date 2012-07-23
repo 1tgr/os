@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <setjmp.h>
 
 typedef unsigned char uint8_t;
 typedef unsigned short uint16_t;
@@ -42,12 +43,12 @@ typedef struct {
 
 typedef struct thread_t {
     struct thread_t *prev, *next;
-    void *kernel_esp;
+    jmp_buf buf;
 } thread_t;
 
 static uint8_t* const video = (uint8_t*)0xb8000;
 static int x, y;
-thread_t *thread_first, *thread_last, *thread_current;
+thread_t thread_idle, *thread_first = &thread_idle, *thread_last = &thread_idle, *thread_current = &thread_idle;
  
 static void outb(uint16_t port, uint8_t val) {
     __asm("outb %0, %1" : : "a"(val), "Nd"(port));
@@ -60,20 +61,15 @@ static void update_cursor(int position) {
     outb(0x3D5, position >> 8);
 }
 
-void *i386_isr(void *kernel_esp, i386_context_t context) {
+void i386_isr(i386_context_t context) {
     context = context;
 
-    if (thread_current != NULL)
-        thread_current->kernel_esp = kernel_esp;
-
-    if (thread_current != NULL && thread_current->next != NULL)
-        thread_current = thread_current->next;
-    else
-        thread_current = thread_first;
-
-    outb(0x20,0x20);
-    outb(0xa0,0x20);
-    return thread_current->kernel_esp;
+    if (setjmp(thread_current->buf) == 0) {
+        thread_current = thread_current->next == NULL ? thread_first : thread_current->next;
+        outb(0x20,0x20);
+        outb(0xa0,0x20);
+        longjmp(thread_current->buf, 1);
+    }
 }
 
 int write(int file, char *ptr, int len) {
@@ -122,36 +118,23 @@ static void halt() {
 thread_t *thread_start(void (*entry)(void*), void *arg) {
     int stack_size = 65536;
     uint8_t *stack_start = malloc(stack_size);
-    void *stack_end = stack_start + stack_size - sizeof(i386_context_t);
-    uint16_t code_segment, data_segment;
-    __asm("mov %%cs, %0" : "=r"(code_segment));
-    __asm("mov %%ds, %0" : "=r"(data_segment));
+    void **stack_end = (void**) (stack_start + stack_size);
+    stack_end--;
+    *stack_end = arg;
+    stack_end--;
+    *stack_end = halt;
 
-    i386_context_t context = {
-        .fault_addr = 0,
-        .regs = { 0, 0, 0, 0, 0, 0, 0, 0, },
-        .gs = data_segment,
-        .fs = data_segment,
-        .es = data_segment,
-        .ds = data_segment,
-        .interrupt = 0,
-        .error = 0,
+    jmp_buf buf = { {
+        .eax = 0, .ebx = 0, .ecx = 0, .edx = 0, .esi = 0, .edi = 0, .ebp = 0,
+        .esp = (uint32_t) stack_end,
         .eip = (uint32_t) entry,
-        .cs = code_segment,
-        .eflags = 0x202,
-        .u.kernel_mode = {
-            .caller = (uint32_t) halt,
-            .arg = (uint32_t) arg
-        },
-    };
+    } };
     
-    *(i386_context_t *) stack_end = context;
-
     thread_t *t = malloc(sizeof(*t));
     t->prev = thread_last;
     t->next = NULL;
-    t->kernel_esp = stack_end;
-
+    t->buf[0] = buf[0];
+    
     if (thread_last != NULL)
         thread_last->next = t;
 
@@ -164,7 +147,7 @@ thread_t *thread_start(void (*entry)(void*), void *arg) {
 
 static void thread1_entry(void *arg) {
     printf("hello from %s (%p) (%p)\n", (char *) arg, arg, &arg);
-    while (1) {
+    for (int i = 0; i < 100; i++) {
         printf("1");
         fflush(stdout);
         __asm("hlt");
@@ -173,7 +156,7 @@ static void thread1_entry(void *arg) {
 
 static void thread2_entry(void *arg) {
     printf("hello from %s (%p) (%p)\n", (char *) arg, arg, &arg);
-    while (1) {
+    for (int i = 0; i < 50; i++) {
         printf("2");
         fflush(stdout);
         __asm("hlt");
@@ -231,6 +214,8 @@ void kmain(void) {
     lidt(idt, sizeof(*idt) * 256);
     thread_start(thread1_entry, "thread 1");
     thread_start(thread2_entry, "thread 2");
-    __asm("sti");
+    if (setjmp(thread_idle.buf) == 0)
+        __asm("sti");
+
     halt();
 }
