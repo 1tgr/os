@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
+#include "cutest/CuTest.h"
 
 typedef unsigned char uint8_t;
 typedef unsigned short uint16_t;
@@ -145,22 +146,20 @@ thread_t *thread_start(void (*entry)(void*), void *arg) {
     return t;
 }
 
-static void thread1_entry(void *arg) {
-    printf("hello from %s (%p) (%p)\n", (char *) arg, arg, &arg);
-    for (int i = 0; i < 100; i++) {
-        printf("1");
-        fflush(stdout);
-        __asm("hlt");
-    }
-}
+void test_thread(void *arg) {
+	CuSuite* suite = CuSuiteNew();
 
-static void thread2_entry(void *arg) {
-    printf("hello from %s (%p) (%p)\n", (char *) arg, arg, &arg);
-    for (int i = 0; i < 50; i++) {
-        printf("2");
-        fflush(stdout);
-        __asm("hlt");
+    {
+        CuSuite* s = CuSuiteNew();
+        CuSuiteAddSuite(suite, s);
     }
+
+	CuSuiteRun(suite);
+
+	CuString *output = CuStringNew();
+	CuSuiteSummary(suite, output);
+	CuSuiteDetails(suite, output);
+	printf("%s\n", output->buffer);
 }
 
 #define exception(n) void exception_##n();
@@ -193,7 +192,6 @@ void kmain(void) {
 
     x = y = 0;
     update_cursor(0);
-    printf("hello world\n");
 
     descriptor_int_t *idt = malloc(sizeof(*idt) * 256);
     uint16_t code_segment;
@@ -212,8 +210,8 @@ void kmain(void) {
     }
 
     lidt(idt, sizeof(*idt) * 256);
-    thread_start(thread1_entry, "thread 1");
-    thread_start(thread2_entry, "thread 2");
+    thread_start(test_thread, NULL);
+
     if (setjmp(thread_idle.buf) == 0)
         __asm("sti");
 
