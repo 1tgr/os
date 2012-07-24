@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
+#include <malloc.h>
 #include "cutest/CuTest.h"
 
 typedef unsigned char uint8_t;
@@ -42,10 +43,123 @@ typedef struct {
 	uint16_t offset_h;
 } __attribute__((packed)) descriptor_int_t;
 
+typedef struct {
+    int refs;
+    void (*dealloc)(void *);
+} obj_t;
+
+typedef struct {
+    obj_t obj;
+    obj_t **objs;
+    size_t count;
+} array_t;
+
+typedef struct pool_t {
+    obj_t obj;
+    struct pool_t *parent;
+    array_t *objs;
+} pool_t;
+
 typedef struct thread_t {
+    obj_t obj;
     struct thread_t *prev, *next;
     jmp_buf buf;
 } thread_t;
+
+typedef struct {
+    obj_t obj;
+    thread_t *waiter;
+    array_t *data;
+} inbox_t;
+
+void *obj_alloc(size_t size) {
+    obj_t *o = malloc(size);
+    o->refs = 1;
+    o->dealloc = NULL;
+    return o;
+}
+
+void *obj_retain(obj_t *o) {
+    o->refs++;
+    return o;
+}
+
+int obj_release(obj_t *o) {
+    int refs = --o->refs;
+    if (refs <= 0) {
+        if (o->dealloc != NULL)
+            o->dealloc(o);
+
+        free(o);
+    }
+
+    return refs;
+}
+
+static void array_dealloc(void *o) {
+    array_t *a = o;
+
+    for (size_t i = 0; i < a->count; i++) {
+        obj_release(a->objs[i]);
+    }
+
+    free(a->objs);
+}
+
+array_t *array_alloc() {
+    array_t *a = obj_alloc(sizeof(*a));
+    a->obj.dealloc = array_dealloc;
+    a->objs = malloc(sizeof(*a->objs) * 4);
+    a->count = 0;
+    return a;
+}
+
+void array_add(array_t *a, obj_t *o) {
+    size_t size = malloc_usable_size(a->objs);
+    if ((a->count + 1) * sizeof(*a->objs) > size) {
+        a->objs = realloc(a->objs, size * 2);
+    }
+
+    a->objs[a->count++] = obj_retain(o);
+}
+
+static pool_t *obj_pool;
+
+static void obj_dealloc_pool(void *o) {
+    pool_t *p = o;
+    obj_pool = p->parent;
+    obj_release(&p->objs->obj);
+}
+
+pool_t *obj_alloc_pool() {
+    pool_t *p = obj_alloc(sizeof(*p));
+    p->obj.dealloc = obj_dealloc_pool;
+    p->parent = obj_pool;
+    p->objs = array_alloc();
+    obj_pool = p;
+    return p;
+}
+
+void *obj_autorelease(obj_t *o) {
+    pool_t *p = obj_pool;
+    array_add(p->objs, o);
+    obj_release(o);
+    return o;
+}
+
+static void inbox_dealloc(void *o) {
+    inbox_t *i = o;
+    obj_release(&i->waiter->obj);
+    obj_release(&i->data->obj);
+}
+
+inbox_t *inbox_alloc() {
+    inbox_t *i = obj_alloc(sizeof(*i));
+    i->obj.dealloc = inbox_dealloc;
+    i->waiter = NULL;
+    i->data = array_alloc();
+    return i;
+}
 
 static uint8_t* const video = (uint8_t*)0xb8000;
 static int x, y;
@@ -131,7 +245,7 @@ thread_t *thread_start(void (*entry)(void*), void *arg) {
         .eip = (uint32_t) entry,
     } };
     
-    thread_t *t = malloc(sizeof(*t));
+    thread_t *t = obj_alloc(sizeof(*t));
     t->prev = thread_last;
     t->next = NULL;
     t->buf[0] = buf[0];
@@ -146,11 +260,106 @@ thread_t *thread_start(void (*entry)(void*), void *arg) {
     return t;
 }
 
+static void test_obj_alloc_release(CuTest *ct) {
+    obj_t *o = obj_alloc(sizeof(*o));
+	CuAssertIntEquals(ct, 1, o->refs);
+    CuAssertIntEquals(ct, 0, obj_release(o));
+}
+
+static void test_obj_alloc_retain_release(CuTest *ct) {
+    obj_t *o = obj_alloc(sizeof(*o));
+	CuAssertIntEquals(ct, 1, o->refs);
+
+    obj_t *o2 = obj_retain(o);
+    CuAssertPtrEquals(ct, o, o2);
+    CuAssertIntEquals(ct, 2, o2->refs);
+    CuAssertIntEquals(ct, 1, obj_release(o2));
+    CuAssertIntEquals(ct, 0, obj_release(o2));
+}
+
+static void test_obj_alloc_pool_autorelease(CuTest *ct) {
+    int is_dealloc = 0;
+
+    void dealloc(void *o) {
+        is_dealloc++;
+    }
+
+    pool_t *p = obj_alloc_pool();
+    CuAssertIntEquals(ct, 0, p->objs->count);
+    CuAssertPtrEquals(ct, p, obj_pool);
+
+    obj_t *o = obj_autorelease(obj_alloc(sizeof(*o)));
+    o->dealloc = dealloc;
+    CuAssertIntEquals(ct, 1, p->objs->count);
+    CuAssertIntEquals(ct, 0, obj_release(&p->obj));
+    CuAssertIntEquals(ct, 1, is_dealloc);
+}
+
+static void test_obj_alloc_pool_parent_autorelease(CuTest *ct) {
+    int is_dealloc = 0;
+
+    void dealloc(void *o) {
+        is_dealloc++;
+    }
+
+    pool_t *outer = obj_alloc_pool();
+    CuAssertIntEquals(ct, 0, outer->objs->count);
+    CuAssertPtrEquals(ct, outer, obj_pool);
+
+    pool_t *inner = obj_alloc_pool();
+    CuAssertIntEquals(ct, 0, outer->objs->count);
+    CuAssertIntEquals(ct, 0, inner->objs->count);
+    CuAssertPtrEquals(ct, inner, obj_pool);
+
+    obj_t * o = obj_autorelease(obj_alloc(sizeof(*o)));
+    o->dealloc = dealloc;
+    CuAssertIntEquals(ct, 1, inner->objs->count);
+    CuAssertIntEquals(ct, 0, obj_release(&inner->obj));
+    CuAssertIntEquals(ct, 0, obj_release(&outer->obj));
+    CuAssertIntEquals(ct, 1, is_dealloc);
+}
+
+static void test_array_alloc(CuTest *ct) {
+    array_t *a = array_alloc();
+    CuAssertIntEquals(ct, 0, a->count);
+    obj_release(&a->obj);
+}
+
+static void test_array_add_release(CuTest *ct) {
+    int is_dealloc = 0;
+
+    void dealloc(void *o) {
+        is_dealloc++;
+    }
+
+    array_t *a = array_alloc();
+    CuAssertIntEquals(ct, 0, a->count);
+
+    obj_t *o = obj_alloc(sizeof(*o));
+    o->dealloc = dealloc;
+    array_add(a, o);
+    CuAssertIntEquals(ct, 1, obj_release(o));
+    CuAssertIntEquals(ct, 0, is_dealloc);
+    CuAssertIntEquals(ct, 0, obj_release(&a->obj));
+    CuAssertIntEquals(ct, 1, is_dealloc);
+}
+
 void test_thread(void *arg) {
 	CuSuite* suite = CuSuiteNew();
 
     {
         CuSuite* s = CuSuiteNew();
+        SUITE_ADD_TEST(s, test_obj_alloc_release);
+        SUITE_ADD_TEST(s, test_obj_alloc_retain_release);
+        SUITE_ADD_TEST(s, test_obj_alloc_pool_autorelease);
+        SUITE_ADD_TEST(s, test_obj_alloc_pool_parent_autorelease);
+        CuSuiteAddSuite(suite, s);
+    }
+
+    {
+        CuSuite* s = CuSuiteNew();
+        SUITE_ADD_TEST(s, test_array_alloc);
+        SUITE_ADD_TEST(s, test_array_add_release);
         CuSuiteAddSuite(suite, s);
     }
 
