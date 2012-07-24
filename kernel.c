@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <setjmp.h>
 #include <malloc.h>
+#include <string.h>
 #include "cutest/CuTest.h"
 
 typedef unsigned char uint8_t;
@@ -147,20 +148,6 @@ void *obj_autorelease(obj_t *o) {
     return o;
 }
 
-static void inbox_dealloc(void *o) {
-    inbox_t *i = o;
-    obj_release(&i->waiter->obj);
-    obj_release(&i->data->obj);
-}
-
-inbox_t *inbox_alloc() {
-    inbox_t *i = obj_alloc(sizeof(*i));
-    i->obj.dealloc = inbox_dealloc;
-    i->waiter = NULL;
-    i->data = array_alloc();
-    return i;
-}
-
 static uint8_t* const video = (uint8_t*)0xb8000;
 static int x, y;
 thread_t thread_idle, *thread_first = &thread_idle, *thread_last = &thread_idle, *thread_current = &thread_idle;
@@ -230,6 +217,13 @@ static void halt() {
     }
 }
 
+void thread_switch_to(thread_t *t) {
+    if (setjmp(thread_current->buf) == 0) {
+        thread_current = t;
+        longjmp(thread_current->buf, 1);
+    }
+}
+
 thread_t *thread_start(void (*entry)(void*), void *arg) {
     int stack_size = 65536;
     uint8_t *stack_start = malloc(stack_size);
@@ -257,7 +251,50 @@ thread_t *thread_start(void (*entry)(void*), void *arg) {
         thread_first = t;
 
     thread_last = t;
+    thread_switch_to(t);
     return t;
+}
+
+static void inbox_dealloc(void *o) {
+    inbox_t *i = o;
+
+    if (i->waiter != NULL)
+        obj_release(&i->waiter->obj);
+
+    obj_release(&i->data->obj);
+}
+
+inbox_t *inbox_alloc() {
+    inbox_t *i = obj_alloc(sizeof(*i));
+    i->obj.dealloc = inbox_dealloc;
+    i->waiter = NULL;
+    i->data = array_alloc();
+    return i;
+}
+
+void inbox_post(inbox_t *i, obj_t *o) {
+    array_add(i->data, o);
+
+    thread_t *w = i->waiter;
+    if (w != NULL) {
+        i->waiter = NULL;
+        thread_switch_to(w);
+        obj_release(&w->obj);
+    }
+}
+
+obj_t *inbox_read(inbox_t *i) {
+    while (i->data->count == 0) {
+        if (i->waiter == NULL)
+            i->waiter = obj_retain(&thread_current->obj);
+        
+        __asm("hlt");
+    }
+
+    obj_t *o = obj_autorelease(i->data->objs[0]);
+    i->data->count--;
+    memmove(i->data->objs, i->data->objs + 1, i->data->count * sizeof(*i->data->objs));
+    return o;
 }
 
 static void test_obj_alloc_release(CuTest *ct) {
@@ -344,6 +381,72 @@ static void test_array_add_release(CuTest *ct) {
     CuAssertIntEquals(ct, 1, is_dealloc);
 }
 
+static void test_inbox_post(CuTest *ct) {
+    int is_dealloc = 0;
+
+    void dealloc(void *o) {
+        is_dealloc++;
+    }
+
+    pool_t *pool = obj_alloc_pool();
+    inbox_t *i = obj_autorelease(&inbox_alloc()->obj);
+    obj_t *o = obj_autorelease(obj_alloc(sizeof(*o)));
+    o->dealloc = dealloc;
+
+    inbox_post(i, o);
+    obj_release(&pool->obj);
+    CuAssertIntEquals(ct, 1, is_dealloc);
+}
+
+static void test_inbox_post_read_sync(CuTest *ct) {
+    int is_dealloc = 0;
+
+    void dealloc(void *o) {
+        is_dealloc++;
+    }
+
+    pool_t *pool = obj_alloc_pool();
+    inbox_t *i = obj_autorelease(&inbox_alloc()->obj);
+    obj_t *o = obj_autorelease(obj_alloc(sizeof(*o)));
+    o->dealloc = dealloc;
+    inbox_post(i, o);
+
+    obj_t *o2 = inbox_read(i);
+    CuAssertPtrEquals(ct, o, o2);
+    obj_release(&pool->obj);
+    CuAssertIntEquals(ct, 1, is_dealloc);
+}
+
+static void async_inbox_reader(void *arg) {
+    void **args = arg;
+    inbox_t *inbox = args[0];
+    obj_t **o = args[1];
+    *o = inbox_read(inbox);
+}
+
+static void test_inbox_post_read_async(CuTest *ct) {
+    int is_dealloc = 0;
+
+    void dealloc(void *o) {
+        is_dealloc++;
+    }
+
+    pool_t *pool = obj_alloc_pool();
+    inbox_t *i = obj_autorelease(&inbox_alloc()->obj);
+    volatile obj_t *result = NULL;
+    void *args[] = { i, &result };
+    thread_start(async_inbox_reader, args);
+
+    obj_t *o = obj_autorelease(obj_alloc(sizeof(*o)));
+    o->dealloc = dealloc;
+    inbox_post(i, o);
+
+    obj_t *o2 = (obj_t*) result;
+    CuAssertPtrEquals(ct, o, o2);
+    obj_release(&pool->obj);
+    CuAssertIntEquals(ct, 1, is_dealloc);
+}
+
 void test_thread(void *arg) {
 	CuSuite* suite = CuSuiteNew();
 
@@ -360,6 +463,14 @@ void test_thread(void *arg) {
         CuSuite* s = CuSuiteNew();
         SUITE_ADD_TEST(s, test_array_alloc);
         SUITE_ADD_TEST(s, test_array_add_release);
+        CuSuiteAddSuite(suite, s);
+    }
+
+    {
+        CuSuite* s = CuSuiteNew();
+        SUITE_ADD_TEST(s, test_inbox_post);
+        SUITE_ADD_TEST(s, test_inbox_post_read_sync);
+        SUITE_ADD_TEST(s, test_inbox_post_read_async);
         CuSuiteAddSuite(suite, s);
     }
 
@@ -419,10 +530,11 @@ void kmain(void) {
     }
 
     lidt(idt, sizeof(*idt) * 256);
-    thread_start(test_thread, NULL);
 
-    if (setjmp(thread_idle.buf) == 0)
+    if (setjmp(thread_idle.buf) == 0) {
         __asm("sti");
+        thread_start(test_thread, NULL);
+    }
 
     halt();
 }
