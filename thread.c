@@ -11,6 +11,10 @@ void thread_switch_to(thread_t *t) {
     }
 }
 
+void thread_yield() {
+    thread_switch_to(thread_current->next == NULL ? thread_first : thread_current->next);
+}
+
 static void halt() {
     while (1) {
         __asm("hlt");

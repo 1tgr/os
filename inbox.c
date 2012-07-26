@@ -1,5 +1,6 @@
 #include <string.h>
 #include "inbox.h"
+#include "thread.h"
 
 static void inbox_dealloc(void *o) {
     inbox_t *i = o;
@@ -22,7 +23,9 @@ void inbox_post(inbox_t *i, obj_t *o) {
     array_add(i->data, o);
 
     thread_t *w = i->waiter;
-    if (w != NULL) {
+    if (w == NULL)
+        thread_yield();
+    else {
         i->waiter = NULL;
         thread_switch_to(w);
         obj_release(&w->obj);
@@ -34,7 +37,7 @@ obj_t *inbox_read(inbox_t *i) {
         if (i->waiter == NULL)
             i->waiter = obj_retain(&thread_current->obj);
         
-        __asm("hlt");
+        thread_yield();
     }
 
     obj_t *o = obj_autorelease(i->data->objs[0]);

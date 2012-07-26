@@ -1,5 +1,6 @@
 #include <setjmp.h>
 #include <stdlib.h>
+#include "inbox.h"
 #include "thread.h"
 #include "types.h"
 
@@ -52,16 +53,24 @@ static void update_cursor(int position) {
     outb(0x3D5, position >> 8);
 }
 
+static inbox_t *irq_handlers[16];
+static obj_t *irq_handler_data[16];
+
 #define PIC_M 0x20
 #define PIC_S 0xA0
 
 void i386_isr(i386_context_t context) {
     if (context.error == (uint32_t) -1) {
+        inbox_t *handler = irq_handlers[context.interrupt];
+        obj_t *data = irq_handler_data[context.interrupt];
+        __asm("sti");
         outb(PIC_M, 0x20);
-        outb(PIC_S,  0x20);
+        outb(PIC_S, 0x20);
 
-        if (context.interrupt == 0)
-            thread_switch_to(thread_current->next == NULL ? thread_first : thread_current->next);
+        if (handler != NULL)
+            inbox_post(handler, data);
+
+        __asm("cli");
     }
 }
 
@@ -117,6 +126,17 @@ int write(int file, char *ptr, int len) {
 }
 
 void test_thread(void *arg);
+
+void timer_thread(void *arg) {
+    pool_t *pool = obj_alloc_pool();
+    while (1) {
+        inbox_read(arg);
+        thread_yield();
+        // obj_drain_pool(pool);
+    }
+
+    obj_release(&pool->obj);
+}
 
 #define exception(n) void exception_##n();
 #define irq(n) void irq_##n();
@@ -221,6 +241,11 @@ void kmain(void) {
 
     if (setjmp(thread_idle.buf) == 0) {
         __asm("sti");
+
+        inbox_t *timer_inbox = inbox_alloc();
+        irq_handlers[0] = obj_retain(&timer_inbox->obj);
+        irq_handler_data[0] = obj_alloc(sizeof(obj_t));
+        thread_start(timer_thread, timer_inbox);
         thread_start(test_thread, NULL);
     }
 

@@ -13,6 +13,7 @@ typedef struct thread_t {
 extern thread_t thread_idle, *thread_first, *thread_last, *thread_current;
 
 void thread_switch_to(thread_t *t);
+void thread_yield();
 thread_t *thread_start(void (*entry)(void*), void *arg);
 
 #endif
