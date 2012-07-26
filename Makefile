@@ -1,5 +1,5 @@
 CC=i386-elf-gcc-4.3.2
-CFLAGS=-Wall -Wextra -Werror -Wno-unused-parameter -fno-builtin -nostartfiles -nodefaultlibs -std=c99 -I newlib/i386-elf/include
+CFLAGS=-g -Wall -Wextra -Werror -Wno-unused-parameter -fno-builtin -nostartfiles -nodefaultlibs -std=c99 -I newlib/i386-elf/include
 OBJDIR=obj
 OBJECTS=loader.o isr.o array.o inbox.o kernel.o obj.o test.o thread.o cutest/CuTest.o
 
