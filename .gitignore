@@ -1,3 +1,4 @@
+*.d
 *.o
 kernel.bin
 newlib/i386-elf/lib

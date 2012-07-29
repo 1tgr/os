@@ -2,11 +2,20 @@ CC=i386-elf-gcc-4.3.2
 CFLAGS=-g -Wall -Wextra -Werror -Wno-unused-parameter -fno-builtin -nostartfiles -nodefaultlibs -std=c99 -I newlib/i386-elf/include
 OBJDIR=obj
 OBJECTS=loader.o isr.o array.o inbox.o kernel.o obj.o test.o thread.o cutest/CuTest.o
+OBJECTS_IN_DIR=$(addprefix $(OBJDIR)/, $(OBJECTS))
 
 all: kernel.bin
 
 clean:
-	rm kernel.bin $(addprefix $(OBJDIR)/, $(OBJECTS))
+	rm kernel.bin $(OBJECTS_IN_DIR) $(OBJECTS_IN_DIR:.o=.d)
+
+$(OBJDIR)/%.d: %.S | $(OBJDIR)
+	printf $(OBJDIR)/ > $@
+	$(CC) $(CFLAGS) $(CPPFLAGS) -M -o - $< >> $@
+
+$(OBJDIR)/%.d: %.c | $(OBJDIR) $(OBJDIR)/cutest
+	printf $(OBJDIR)/ > $@
+	$(CC) $(CFLAGS) $(CPPFLAGS) -M -o - $< >> $@
 
 $(OBJDIR)/%.o: %.S | $(OBJDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
@@ -20,8 +29,10 @@ $(OBJDIR):
 $(OBJDIR)/cutest:
 	mkdir $(OBJDIR)/cutest
 
-kernel.bin: linker.ld $(addprefix $(OBJDIR)/, $(OBJECTS))
+kernel.bin: linker.ld $(OBJECTS_IN_DIR)
 	i386-elf-ld -L newlib/i386-elf/lib -T linker.ld -o $@ $^ -lc -lnosys -lm
 
 qemu: kernel.bin
 	qemu-system-i386 -kernel $<
+
+include $(OBJECTS_IN_DIR:.o=.d)
