@@ -24,8 +24,6 @@ typedef struct thread_t {
     } u;
 } thread_t;
 
-extern thread_t thread_idle, *thread_current, *thread_running_first, *thread_running_last, *thread_waiting_first, *thread_waiting_last;
-
 void thread_yield();
 void thread_wait(struct inbox_t *inbox);
 thread_t *thread_start(void (*entry)(void*), void *arg);

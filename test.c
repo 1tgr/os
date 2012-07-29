@@ -4,6 +4,8 @@
 #include "inbox.h"
 #include "thread.h"
 
+extern pool_t *obj_pool;
+
 static void test_obj_alloc_release(CuTest *ct) {
     obj_t *o = obj_alloc(sizeof(*o));
 	CuAssertIntEquals(ct, 1, o->refs);

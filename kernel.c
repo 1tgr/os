@@ -203,18 +203,20 @@ void kmain(void) {
     set_gdt(gdt + 1, 0xfffff, ACS_CODE | ACS_DPL_0, ATTR_DEFAULT | ATTR_GRANULARITY);
     set_gdt(gdt + 2, 0xfffff, ACS_DATA | ACS_DPL_0, ATTR_BIG | ATTR_GRANULARITY);
 
-    uint32_t gdtr[] = { sizeof(gdt) << 16, (uint32_t) gdt };
-    __asm(
-        "lgdt %0\n"
-        "ljmp %1,$reload_cs\n"
-        "reload_cs:\n"
-        "mov %2, %%ds\n"
-        "mov %2, %%es\n"
-        "mov %2, %%fs\n"
-        "mov %2, %%gs\n"
-        "mov %2, %%ss\n"
-        : : "m" (((char *) gdtr)[2]), "i" (8), "r" (16)
-    );
+    {
+        uint32_t gdtr[] = { sizeof(gdt) << 16, (uint32_t) gdt };
+        __asm(
+            "lgdt %0\n"
+            "ljmp %1,$reload_cs\n"
+            "reload_cs:\n"
+            "mov %2, %%ds\n"
+            "mov %2, %%es\n"
+            "mov %2, %%fs\n"
+            "mov %2, %%gs\n"
+            "mov %2, %%ss\n"
+            : : "m" (((char *) gdtr)[2]), "i" (8), "r" (16)
+        );
+    }
 
     for (int i = 0; i < 80 * 25; i++) {
         video[i * 2] = ' ';
@@ -223,7 +225,9 @@ void kmain(void) {
 
     update_cursor(0);
 
-    int i = 0;
+    {
+        int i = 0;
+
 #define exception(n) set_idt(&idt[i++], exception_##n);
 #define irq(n) set_idt(&idt[i++], irq_##n);
 #define interrupt(n) set_idt(&idt[i++], interrupt_##n);
@@ -232,22 +236,24 @@ void kmain(void) {
 #undef irq
 #undef interrupt
 
-    while (i < 256)
-        set_idt(&idt[i++], interrupt_30);
-
-    uint32_t idtr[] = { sizeof(idt) << 16, (uint32_t) idt };
-    __asm("lidt %0" : : "m" (((char *) idtr)[2]));
-    i386_init_pic(32, 40);
-
-    if (setjmp(thread_idle.buf) == 0) {
-        __asm("sti");
-
-        inbox_t *timer_inbox = inbox_alloc();
-        irq_handlers[0] = obj_retain(&timer_inbox->obj);
-        irq_handler_data[0] = obj_alloc(sizeof(obj_t));
-        thread_start(timer_thread, timer_inbox);
-        thread_start(test_thread, NULL);
+        while (i < 256)
+            set_idt(&idt[i++], interrupt_30);
     }
+
+    {
+        uint32_t idtr[] = { sizeof(idt) << 16, (uint32_t) idt };
+        __asm("lidt %0" : : "m" (((char *) idtr)[2]));
+    }
+
+    i386_init_pic(32, 40);
+    thread_yield();
+    __asm("sti");
+
+    inbox_t *timer_inbox = inbox_alloc();
+    irq_handlers[0] = obj_retain(&timer_inbox->obj);
+    irq_handler_data[0] = obj_alloc(sizeof(obj_t));
+    thread_start(timer_thread, timer_inbox);
+    thread_start(test_thread, NULL);
 
     while (1)
         __asm("hlt");
