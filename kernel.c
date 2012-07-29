@@ -89,6 +89,13 @@ static void i386_init_pic(uint8_t master_vector, uint8_t slave_vector) {
     outb(PIC_S + 1, 0);                 // enable all IRQs on slave
 }
 
+static void i386_init_timer(unsigned hz) {
+    uint16_t n = 3579545L / (hz * 3);
+    outb(0x43, 0x36);
+    outb(0x40, n & 0xff);
+    outb(0x40, n >> 8);
+}
+
 int write(int file, char *ptr, int len) {
     if (file == 1) {
         uint8_t *write = video + (y * 80 + x) * 2;
@@ -130,8 +137,10 @@ void test_thread(void *arg);
 
 void timer_thread(void *arg) {
     pool_t *pool = obj_alloc_pool();
+    uint8_t *v = video + 79 * 2 + 1;
     while (1) {
         inbox_read(arg);
+        *v = ~*v;
         thread_yield();
         // obj_drain_pool(pool);
     }
@@ -177,8 +186,7 @@ void timer_thread(void *arg) {
 #define ATTR_BIG         0x40           /* ESP is used rather than SP */
 #define ATTR_DEFAULT     0x40           /* 32-bit code segment rather than 16-bit */
 
-static void set_gdt(descriptor_t *item, uint32_t limit, uint8_t access, uint8_t attribs)
-{
+static void set_gdt(descriptor_t *item, uint32_t limit, uint8_t access, uint8_t attribs) {
     item->base_l = 0;
     item->base_m = 0;
     item->base_h = 0;
@@ -251,6 +259,7 @@ void kmain(void) {
     }
 
     i386_init_pic(32, 40);
+    i386_init_timer(100);
     thread_yield();
     puts("*");
     __asm("sti");
