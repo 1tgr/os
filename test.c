@@ -2,6 +2,7 @@
 #include "array.h"
 #include "cutest/CuTest.h"
 #include "inbox.h"
+#include "lock.h"
 #include "thread.h"
 
 extern pool_t *obj_pool;
@@ -158,6 +159,42 @@ static void test_inbox_post_read_async(CuTest *ct) {
     CuAssertIntEquals(ct, 1, is_dealloc);
 }
 
+enum {
+    thrash_count = 100000,
+    thrash_threads = 40,
+};
+
+static void thrash_thread(void *arg) {
+    void **args = arg;
+    volatile int *n = args[0];
+    inbox_t *inbox = args[1];
+    obj_t *finished = args[2];
+
+    for (int i = 0; i < thrash_count; i++) {
+        (*n)++;
+    }
+
+    inbox_post(inbox, finished);
+}
+
+static void test_lock(CuTest *ct) {
+    volatile int counter = 0;
+    inbox_t *inbox = inbox_alloc();
+    obj_t *finished = obj_alloc(sizeof(*finished));
+    void *args[] = { (int *)&counter, inbox, finished };
+
+    for (int i = 0; i < thrash_threads; i++)
+        thread_start(thrash_thread, args);
+
+    for (int i = 0; i < thrash_threads; i++)
+        CuAssertPtrEquals(ct, finished, inbox_read(inbox));
+
+    CuAssertIntEquals(ct, thrash_threads * thrash_count, counter);
+
+    obj_release(&inbox->obj);
+    obj_release(finished);
+}
+
 void test_thread(void *arg) {
 	CuSuite* suite = CuSuiteNew();
 
@@ -182,6 +219,12 @@ void test_thread(void *arg) {
         SUITE_ADD_TEST(s, test_inbox_post);
         SUITE_ADD_TEST(s, test_inbox_post_read_sync);
         SUITE_ADD_TEST(s, test_inbox_post_read_async);
+        CuSuiteAddSuite(suite, s);
+    }
+
+    {
+        CuSuite* s = CuSuiteNew();
+        SUITE_ADD_TEST(s, test_lock);
         CuSuiteAddSuite(suite, s);
     }
 
