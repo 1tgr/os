@@ -1,4 +1,5 @@
 #include <setjmp.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include "inbox.h"
 #include "thread.h"
@@ -199,11 +200,21 @@ void kmain(void) {
     static descriptor_t gdt[3];
     static descriptor_int_t idt[256];
 
+    for (int i = 0; i < 80 * 25; i++) {
+        video[i * 2] = ' ';
+        video[i * 2 + 1] = 7;
+    }
+
+    update_cursor(0);
+
     set_gdt(gdt + 0, 0, 0, 0);
     set_gdt(gdt + 1, 0xfffff, ACS_CODE | ACS_DPL_0, ATTR_DEFAULT | ATTR_GRANULARITY);
     set_gdt(gdt + 2, 0xfffff, ACS_DATA | ACS_DPL_0, ATTR_BIG | ATTR_GRANULARITY);
 
     {
+        putchar('*');
+        fflush(stdout);
+
         uint32_t gdtr[] = { sizeof(gdt) << 16, (uint32_t) gdt };
         __asm(
             "lgdt %0\n"
@@ -218,14 +229,10 @@ void kmain(void) {
         );
     }
 
-    for (int i = 0; i < 80 * 25; i++) {
-        video[i * 2] = ' ';
-        video[i * 2 + 1] = 7;
-    }
-
-    update_cursor(0);
-
     {
+        putchar('*');
+        fflush(stdout);
+
         int i = 0;
 
 #define exception(n) set_idt(&idt[i++], exception_##n);
@@ -238,15 +245,14 @@ void kmain(void) {
 
         while (i < 256)
             set_idt(&idt[i++], interrupt_30);
-    }
 
-    {
         uint32_t idtr[] = { sizeof(idt) << 16, (uint32_t) idt };
         __asm("lidt %0" : : "m" (((char *) idtr)[2]));
     }
 
     i386_init_pic(32, 40);
     thread_yield();
+    puts("*");
     __asm("sti");
 
     inbox_t *timer_inbox = inbox_alloc();

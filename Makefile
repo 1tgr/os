@@ -1,7 +1,7 @@
 CC=i386-elf-gcc-4.3.2
-CFLAGS=-g -Wall -Wextra -Werror -Wno-unused-parameter -fno-builtin -nostartfiles -nodefaultlibs -std=c99 -I newlib/i386-elf/include
+CFLAGS=-g -O2 -Wall -Wextra -Werror -Wno-unused-parameter -fno-builtin -nostartfiles -nodefaultlibs -std=c99 -I newlib/i386-elf/include
 OBJDIR=obj
-OBJECTS=loader.o isr.o array.o inbox.o kernel.o obj.o test.o thread.o cutest/CuTest.o
+OBJECTS=loader.o isr.o array.o inbox.o kernel.o lock.o obj.o test.o thread.o cutest/CuTest.o
 OBJECTS_IN_DIR=$(addprefix $(OBJDIR)/, $(OBJECTS))
 
 all: kernel.bin

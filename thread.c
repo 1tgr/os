@@ -1,9 +1,11 @@
 #include <stdlib.h>
 #include "inbox.h"
+#include "lock.h"
 #include "thread.h"
 #include "types.h"
 
-thread_t thread_idle, *thread_current = &thread_idle, *thread_running_first = &thread_idle, *thread_running_last = &thread_idle, *thread_waiting_first, *thread_waiting_last;
+static thread_t thread_idle, *thread_current = &thread_idle, *thread_running_first = &thread_idle, *thread_running_last = &thread_idle, *thread_waiting_first, *thread_waiting_last;
+static lock_t lock;
 
 #define LIST_ADD(list, obj, member) \
     { \
@@ -22,10 +24,11 @@ thread_t thread_idle, *thread_current = &thread_idle, *thread_running_first = &t
         *((obj)->member.next == NULL ? &list##_last  : &(obj)->member.next->member.prev) = (obj)->member.prev; \
     }
 
-static void switch_to(thread_t *t) {
+static void unlock_and_switch_to(thread_t *t) {
     if (setjmp(thread_current->buf) == 0) {
         thread_current = t;
-        longjmp(thread_current->buf, 1);
+        lock_leave(&lock);
+        longjmp(t->buf, 1);
     }
 }
 
@@ -42,25 +45,36 @@ static thread_t *find_runnable() {
 }
 
 void thread_yield() {
-    thread_t *t = find_runnable();
+    thread_t *t;
+    lock_enter(&lock);
 
-    if (t->state == thread_waiting) {
-        LIST_REMOVE(thread_waiting, t, u.waiting);
-        t->state = thread_running;
-        LIST_ADD(thread_running, t, u.running);
+    {
+        t = find_runnable();
+
+        if (t->state == thread_waiting) {
+            LIST_REMOVE(thread_waiting, t, u.waiting);
+            t->state = thread_running;
+            LIST_ADD(thread_running, t, u.running);
+        }
     }
 
-    switch_to(t);
+    unlock_and_switch_to(t);
 }
 
 void thread_wait(struct inbox_t *inbox) {
-    thread_t *t = thread_current;
-    thread_t *new_current = t->u.running.next == NULL ? thread_running_first : t->u.running.next;
-    LIST_REMOVE(thread_running, t, u.running);
-    t->state = thread_waiting;
-    t->u.waiting.inbox = obj_retain(&inbox->obj);
-    LIST_ADD(thread_waiting, t, u.waiting);
-    switch_to(new_current);
+    thread_t *new_current;
+    lock_enter(&lock);
+
+    {
+        thread_t *t = thread_current;
+        new_current = t->u.running.next == NULL ? thread_running_first : t->u.running.next;
+        LIST_REMOVE(thread_running, t, u.running);
+        t->state = thread_waiting;
+        t->u.waiting.inbox = obj_retain(&inbox->obj);
+        LIST_ADD(thread_waiting, t, u.waiting);
+    }
+
+    unlock_and_switch_to(new_current);
 }
 
 static void halt() {
@@ -87,8 +101,14 @@ thread_t *thread_start(void (*entry)(void*), void *arg) {
     thread_t *t = obj_alloc(sizeof(*t));
     t->buf[0] = buf[0];
     t->state = thread_running;
-    LIST_ADD(thread_running, t, u.running);
-    switch_to(t);
+
+    lock_enter(&lock);
+
+    {
+        LIST_ADD(thread_running, t, u.running);
+    }
+
+    unlock_and_switch_to(t);
     return t;
 }
 
