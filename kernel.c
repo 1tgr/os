@@ -205,7 +205,7 @@ void kmain(void) {
 
     uint32_t gdtr[] = { sizeof(gdt) << 16, (uint32_t) gdt };
     __asm(
-        "lgdt (%0)\n"
+        "lgdt %0\n"
         "ljmp %1,$reload_cs\n"
         "reload_cs:\n"
         "mov %2, %%ds\n"
@@ -213,7 +213,7 @@ void kmain(void) {
         "mov %2, %%fs\n"
         "mov %2, %%gs\n"
         "mov %2, %%ss\n"
-        : : "p" (((char *) gdtr) + 2), "i" (8), "r" (16)
+        : : "m" (((char *) gdtr)[2]), "i" (8), "r" (16)
     );
 
     for (int i = 0; i < 80 * 25; i++) {
@@ -236,7 +236,7 @@ void kmain(void) {
         set_idt(&idt[i++], interrupt_30);
 
     uint32_t idtr[] = { sizeof(idt) << 16, (uint32_t) idt };
-    __asm("lidt (%0)" : : "p" (((char *) idtr) + 2));
+    __asm("lidt %0" : : "m" (((char *) idtr)[2]));
     i386_init_pic(32, 40);
 
     if (setjmp(thread_idle.buf) == 0) {
