@@ -77,10 +77,20 @@ void thread_wait(struct inbox_t *inbox) {
     unlock_and_switch_to(new_current);
 }
 
-static void halt() {
-    while (1) {
-        __asm("hlt");
+void thread_exit() {
+    thread_t *old_current, *new_current;
+    lock_enter(&lock);
+
+    {
+        old_current = thread_current;
+        LIST_REMOVE(thread_running, thread_current, u.running);
+        new_current = find_runnable();
+        thread_current = new_current;
     }
+
+    lock_leave(&lock);
+    obj_release(&old_current->obj);
+    longjmp(new_current->buf, 1);
 }
 
 thread_t *thread_start(void (*entry)(void*), void *arg) {
@@ -90,7 +100,7 @@ thread_t *thread_start(void (*entry)(void*), void *arg) {
     stack_end--;
     *stack_end = arg;
     stack_end--;
-    *stack_end = halt;
+    *stack_end = thread_exit;
 
     jmp_buf buf = { {
         .eax = 0, .ebx = 0, .ecx = 0, .edx = 0, .esi = 0, .edi = 0, .ebp = 0,

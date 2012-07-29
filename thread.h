@@ -27,6 +27,7 @@ typedef struct thread_t {
 void thread_yield();
 void thread_wait(struct inbox_t *inbox);
 thread_t *thread_start(void (*entry)(void*), void *arg);
+void thread_exit();
 
 #endif
 
