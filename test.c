@@ -142,7 +142,9 @@ static void test_inbox_post_read_async(CuTest *ct) {
     inbox_t *i = obj_autorelease(&inbox_alloc()->obj);
     volatile obj_t *result = NULL;
     void *args[] = { i, &result };
-    thread_start(async_inbox_reader, args);
+    thread_t *reader_thread = thread_start(async_inbox_reader, args);
+    CuAssertIntEquals(ct, thread_waiting, reader_thread->state);
+    CuAssertPtrEquals(ct, i, reader_thread->u.waiting.inbox);
 
     obj_t *o = obj_autorelease(obj_alloc(sizeof(*o)));
     o->dealloc = dealloc;

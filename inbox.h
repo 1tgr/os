@@ -1,12 +1,10 @@
 #ifndef INBOX_H
 #define INBOX_H
 
-#include "thread.h"
 #include "array.h"
 
-typedef struct {
+typedef struct inbox_t {
     obj_t obj;
-    thread_t *waiter;
     array_t *data;
 } inbox_t;
 
