@@ -1,0 +1,7 @@
+timeout 1
+default 0
+
+title OS
+kernel /kernel.bin
+boot
+

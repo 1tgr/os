@@ -1,4 +1,2 @@
-*.d
-*.o
-kernel.bin
+obj
 newlib/i386-elf/lib
