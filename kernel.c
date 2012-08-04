@@ -1,6 +1,7 @@
 #include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "inbox.h"
 #include "interrupt.h"
 #include "thread.h"
@@ -192,9 +193,59 @@ static void set_idt(descriptor_int_t *d, void (*handler)()) {
     d->offset_h = offset >> 16;
 }
 
+#define INT32_BYTES(l) ((l) >> 24) & 0xff, ((l) >> 16) & 0xff, ((l) >> 8) & 0xff, (l) & 0xff
+
+uint32_t i386_smp_lock;
+void *i386_smp_stack;
+static volatile int cpu_count = 1;
+static volatile uint32_t *APIC_ID = (volatile uint32_t *) 0xfee00020;
+
+static void i386_init_smp() {
+    extern uint8_t trampoline[1], trampoline_locate[1], trampoline_end[1];
+    volatile uint32_t *SVR     = (volatile uint32_t *) 0xfee000f0;
+    volatile uint32_t *ICR_LOW = (volatile uint32_t *) 0xfee00300;
+    uint32_t boot_cpu = *APIC_ID & 0xff000000;
+    printf("BSP = %08x\n", boot_cpu);
+
+    *SVR = *SVR | 0x100;
+    *ICR_LOW = 0xc4500;
+    thread_sleep(10);
+
+    uint8_t *trampoline_low = (uint8_t*) 0x1000;
+    memcpy(trampoline_low, trampoline, trampoline_end - trampoline);
+
+    size_t stack_size = 4096;
+    uint8_t *stack = malloc(stack_size);
+    i386_smp_stack = stack + stack_size - sizeof(void*);
+
+    uint8_t *trampoline_locate_low = trampoline_low + (trampoline_locate - trampoline);
+    *(void**) (trampoline_locate_low + 2) = trampoline_low;
+
+    uint32_t trampoline_low8 = (uint32_t) trampoline_low / 4096;
+    *ICR_LOW = 0xc4600 | trampoline_low8;
+    thread_sleep(1); // should be 200 microseconds
+
+    *ICR_LOW = 0xc4600 | trampoline_low8;
+    thread_sleep(100);
+
+    printf("Got %d CPUs\n", cpu_count);
+}
+
+void i386_ap_main() {
+    __sync_add_and_fetch(&cpu_count, 1);
+    printf("Hello from an application processor!\n");
+    __sync_lock_release(&i386_smp_lock);
+}
+
+static void init_thread(void *arg) {
+    i386_init_smp();
+    printf("Finished initialization\n");
+}
+
 void kmain(void) {
     static descriptor_t gdt[3];
     static descriptor_int_t idt[256];
+    extern descriptor_t trampoline_gdt[1];
 
     for (int i = 0; i < 80 * 25; i++) {
         video[i * 2] = ' ';
@@ -203,6 +254,7 @@ void kmain(void) {
 
     update_cursor(0);
     set_gdt(gdt);
+    set_gdt(trampoline_gdt);
 
     {
         putchar('*');
@@ -248,6 +300,7 @@ void kmain(void) {
     thread_init();
     puts("*");
     __asm("sti");
+    thread_start(init_thread, NULL);
     thread_start(test_thread, NULL);
 
     while (1)

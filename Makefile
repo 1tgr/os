@@ -45,6 +45,6 @@ obj/floppy.img: grub.img.gz obj/kernel.bin menu.lst
 	mcopy -i $@ obj/kernel.bin menu.lst ::/
 
 qemu: obj/floppy.img
-	qemu-system-i386 -debugcon stdio -smp 2 -fda $<
+	qemu-system-i386 -debugcon stdio -smp 4 -fda $<
 
 include $(OBJECTS_IN_DIR:.o=.d)
