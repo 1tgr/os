@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "inbox.h"
+#include "interrupt.h"
 #include "thread.h"
 #include "types.h"
 
@@ -54,23 +55,15 @@ static void update_cursor(int position) {
     outb(0x3D5, position >> 8);
 }
 
-static inbox_t *irq_handlers[16];
-static obj_t *irq_handler_data[16];
-
 #define PIC_M 0x20
 #define PIC_S 0xA0
 
 void i386_isr(i386_context_t context) {
     if (context.error == (uint32_t) -1) {
-        inbox_t *handler = irq_handlers[context.interrupt];
-        obj_t *data = irq_handler_data[context.interrupt];
         __asm("sti");
         outb(PIC_M, 0x20);
         outb(PIC_S, 0x20);
-
-        if (handler != NULL)
-            inbox_post(handler, data);
-
+        interrupt_deliver(context.interrupt);
         __asm("cli");
     }
 }
@@ -134,19 +127,6 @@ int write(int file, char *ptr, int len) {
 }
 
 void test_thread(void *arg);
-
-void timer_thread(void *arg) {
-    pool_t *pool = obj_alloc_pool();
-    uint8_t *v = video + 79 * 2 + 1;
-    while (1) {
-        inbox_read(arg);
-        *v = ~*v;
-        thread_yield();
-        // obj_drain_pool(pool);
-    }
-
-    obj_release(&pool->obj);
-}
 
 #define exception(n) void exception_##n();
 #define irq(n) void irq_##n();
@@ -264,10 +244,7 @@ void kmain(void) {
     puts("*");
     __asm("sti");
 
-    inbox_t *timer_inbox = inbox_alloc();
-    irq_handlers[0] = obj_retain(&timer_inbox->obj);
-    irq_handler_data[0] = obj_alloc(sizeof(obj_t));
-    thread_start(timer_thread, timer_inbox);
+    thread_init();
     thread_start(test_thread, NULL);
 
     while (1)
