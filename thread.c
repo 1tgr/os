@@ -8,6 +8,7 @@
 static thread_t idle, *current = &idle, *running_first = &idle, *running_last = &idle, *waiting_first, *waiting_last, *sleeping_first, *sleeping_last;
 static lock_t lock;
 static unsigned uptime;
+const unsigned quantum = 10;
 
 #define LIST_ADD(list, obj, member) \
     { \
@@ -164,6 +165,10 @@ void thread_sleep(unsigned milliseconds) {
     unlock_and_switch_to(new_current);
 }
 
+unsigned thread_get_quantum() {
+    return quantum;
+}
+
 unsigned thread_get_uptime() {
     return uptime;
 }
@@ -173,7 +178,7 @@ static void timer_thread(void *arg) {
     while (1) {
         inbox_read(arg);
         lock_enter(&lock);
-        uptime += 10;
+        uptime += quantum;
         lock_leave(&lock);
         thread_yield();
         // obj_drain_pool(pool);

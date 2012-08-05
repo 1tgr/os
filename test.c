@@ -195,7 +195,13 @@ static void test_lock(CuTest *ct) {
     obj_release(finished);
 }
 
-static void test_sleep(CuTest *ct) {
+static void test_sleep_1msec(CuTest *ct) {
+    unsigned uptime_before = thread_get_uptime();
+    thread_sleep(1);
+    CuAssertIntEquals(ct, uptime_before + thread_get_quantum(), thread_get_uptime());
+}
+
+static void test_sleep_1sec(CuTest *ct) {
     unsigned uptime_before = thread_get_uptime();
     thread_sleep(1000);
     CuAssertIntEquals(ct, uptime_before + 1000, thread_get_uptime());
@@ -231,7 +237,8 @@ void test_thread(void *arg) {
     {
         CuSuite* s = CuSuiteNew();
         SUITE_ADD_TEST(s, test_lock);
-        SUITE_ADD_TEST(s, test_sleep);
+        SUITE_ADD_TEST(s, test_sleep_1msec);
+        SUITE_ADD_TEST(s, test_sleep_1sec);
         CuSuiteAddSuite(suite, s);
     }
 

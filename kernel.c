@@ -244,7 +244,7 @@ void kmain(void) {
     }
 
     i386_init_pic(32, 40);
-    i386_init_timer(100);
+    i386_init_timer(1000 / thread_get_quantum());
     thread_init();
     puts("*");
     __asm("sti");

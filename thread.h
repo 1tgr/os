@@ -30,6 +30,7 @@ typedef struct thread_t {
 } thread_t;
 
 void thread_exit();
+unsigned thread_get_quantum();
 unsigned thread_get_uptime();
 void thread_init();
 void thread_sleep(unsigned milliseconds);
