@@ -94,6 +94,8 @@ int write(int file, char *ptr, int len) {
         uint8_t *write = video + (y * 80 + x) * 2;
 
         for (int i = 0; i < len; i++) {
+            outb(0xe9, ptr[i]);
+
             switch (ptr[i]) {
                 case '\n':
                     x = 0;
@@ -166,13 +168,19 @@ void test_thread(void *arg);
 #define ATTR_BIG         0x40           /* ESP is used rather than SP */
 #define ATTR_DEFAULT     0x40           /* 32-bit code segment rather than 16-bit */
 
-static void set_gdt(descriptor_t *item, uint32_t limit, uint8_t access, uint8_t attribs) {
+static void set_descriptor(descriptor_t *item, uint32_t limit, uint8_t access, uint8_t attribs) {
     item->base_l = 0;
     item->base_m = 0;
     item->base_h = 0;
     item->limit = limit & 0xFFFF;
     item->attribs = attribs | ((limit >> 16) & 0x0F);
     item->access = access;
+}
+
+static void set_gdt(descriptor_t *gdt) {
+    set_descriptor(gdt + 0, 0, 0, 0);
+    set_descriptor(gdt + 1, 0xfffff, ACS_CODE | ACS_DPL_0, ATTR_DEFAULT | ATTR_GRANULARITY);
+    set_descriptor(gdt + 2, 0xfffff, ACS_DATA | ACS_DPL_0, ATTR_BIG | ATTR_GRANULARITY);
 }
 
 static void set_idt(descriptor_int_t *d, void (*handler)()) {
@@ -194,10 +202,7 @@ void kmain(void) {
     }
 
     update_cursor(0);
-
-    set_gdt(gdt + 0, 0, 0, 0);
-    set_gdt(gdt + 1, 0xfffff, ACS_CODE | ACS_DPL_0, ATTR_DEFAULT | ATTR_GRANULARITY);
-    set_gdt(gdt + 2, 0xfffff, ACS_DATA | ACS_DPL_0, ATTR_BIG | ATTR_GRANULARITY);
+    set_gdt(gdt);
 
     {
         putchar('*');
@@ -240,11 +245,9 @@ void kmain(void) {
 
     i386_init_pic(32, 40);
     i386_init_timer(100);
-    thread_yield();
+    thread_init();
     puts("*");
     __asm("sti");
-
-    thread_init();
     thread_start(test_thread, NULL);
 
     while (1)

@@ -183,7 +183,9 @@ static void timer_thread(void *arg) {
 }
 
 void thread_init() {
-    inbox_t *inbox= inbox_alloc();
+    thread_yield();
+
+    inbox_t *inbox = inbox_alloc();
     interrupt_subscribe(0, inbox, obj_alloc(sizeof(obj_t)));
     thread_start(timer_thread, inbox);
 }
