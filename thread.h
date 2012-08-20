@@ -1,6 +1,7 @@
 #ifndef THREAD_H
 #define THREAD_H
 
+#include <reent.h>
 #include <setjmp.h>
 #include "obj.h"
 
@@ -27,11 +28,13 @@ typedef struct thread_t {
             unsigned until;
         } sleeping;
     } u;
+    struct _reent reent;
 } thread_t;
 
 void thread_exit();
 unsigned thread_get_quantum();
 unsigned thread_get_uptime();
+void thread_init_reent();
 void thread_init();
 void thread_sleep(unsigned milliseconds);
 thread_t *thread_start(void (*entry)(void*), void *arg);

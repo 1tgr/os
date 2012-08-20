@@ -197,14 +197,12 @@ static void set_idt(descriptor_int_t *d, void (*handler)()) {
 
 uint32_t i386_smp_lock_1, i386_smp_lock_2 = 1;
 volatile int i386_cpu_count = 1;
-static volatile uint32_t *APIC_ID = (volatile uint32_t *) 0xfee00020;
 
 static void i386_init_smp() {
     extern uint8_t trampoline[1], trampoline_locate[1], trampoline_end[1];
     volatile uint32_t *SVR     = (volatile uint32_t *) 0xfee000f0;
     volatile uint32_t *ICR_LOW = (volatile uint32_t *) 0xfee00300;
-    uint32_t boot_cpu = *APIC_ID & 0xff000000;
-    printf("BSP = %08x\n", boot_cpu);
+    printf("Hello from bootstrap processor!\n");
 
     *SVR = *SVR | 0x100;
     *ICR_LOW = 0xc4500;
@@ -249,6 +247,7 @@ void kmain(void) {
     update_cursor(0);
     set_gdt(gdt);
     set_gdt(trampoline_gdt);
+    thread_init_reent();
 
     {
         putchar('*');

@@ -1,4 +1,6 @@
+#include <sys/reent.h>
 #include <stdlib.h>
+#include <string.h>
 #include "inbox.h"
 #include "interrupt.h"
 #include "lock.h"
@@ -124,6 +126,7 @@ thread_t *thread_start(void (*entry)(void*), void *arg) {
     thread_t *t = obj_alloc(sizeof(*t));
     t->buf[0] = buf[0];
     t->state = thread_running;
+    _REENT_INIT_PTR(&t->reent);
 
     lock_enter(&lock);
 
@@ -185,6 +188,14 @@ static void timer_thread(void *arg) {
     }
 
     obj_release(&pool->obj);
+}
+
+struct _reent *__getreent() {
+    return &current->reent;
+}
+
+void thread_init_reent() {
+    _REENT_INIT_PTR(&current->reent);
 }
 
 void thread_init() {
