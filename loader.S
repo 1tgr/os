@@ -62,15 +62,32 @@ trampoline_end:
     mov %eax, %fs
     mov %eax, %gs
     mov %eax, %ss
-    mov $i386_smp_lock, %edx
+    mov $i386_smp_lock_1, %edx
 
-acquire_smp_lock:
+acquire_smp_lock_1:
     mov $1, %eax
-    lock xchg %eax, (%edx)
+    xchg %eax, (%edx)
     test %eax, %eax
-    jne acquire_smp_lock
+    jne acquire_smp_lock_1
 
-    mov (i386_smp_stack), %esp
+    movl (i386_cpu_count), %ebx
+    inc %ebx
+    mov %ebx, (i386_cpu_count)
+    dec %ebx
+    movl $0, i386_smp_lock_1
+    mov $i386_smp_lock_2, %edx
+
+wait_smp_lock_2:
+    mov $0, %eax
+    xchg %eax, (%edx)
+    test %eax, %eax
+    jne wait_smp_lock_2
+
+    mov %ebx, %eax
+    shl $11, %eax
+    add $stack, %eax
+    mov %eax, %esp
+    push %ebx
     call i386_ap_main
     cli
     jmp hang

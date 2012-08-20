@@ -195,9 +195,8 @@ static void set_idt(descriptor_int_t *d, void (*handler)()) {
 
 #define INT32_BYTES(l) ((l) >> 24) & 0xff, ((l) >> 16) & 0xff, ((l) >> 8) & 0xff, (l) & 0xff
 
-uint32_t i386_smp_lock;
-void *i386_smp_stack;
-static volatile int cpu_count = 1;
+uint32_t i386_smp_lock_1, i386_smp_lock_2 = 1;
+volatile int i386_cpu_count = 1;
 static volatile uint32_t *APIC_ID = (volatile uint32_t *) 0xfee00020;
 
 static void i386_init_smp() {
@@ -214,10 +213,6 @@ static void i386_init_smp() {
     uint8_t *trampoline_low = (uint8_t*) 0x1000;
     memcpy(trampoline_low, trampoline, trampoline_end - trampoline);
 
-    size_t stack_size = 4096;
-    uint8_t *stack = malloc(stack_size);
-    i386_smp_stack = stack + stack_size - sizeof(void*);
-
     uint8_t *trampoline_locate_low = trampoline_low + (trampoline_locate - trampoline);
     *(void**) (trampoline_locate_low + 2) = trampoline_low;
 
@@ -228,13 +223,12 @@ static void i386_init_smp() {
     *ICR_LOW = 0xc4600 | trampoline_low8;
     thread_sleep(100);
 
-    printf("Got %d CPUs\n", cpu_count);
+    printf("Got %d CPUs\n", i386_cpu_count);
+    __sync_lock_release(&i386_smp_lock_2);
 }
 
-void i386_ap_main() {
-    __sync_add_and_fetch(&cpu_count, 1);
-    printf("Hello from an application processor!\n");
-    __sync_lock_release(&i386_smp_lock);
+void i386_ap_main(int cpu_num) {
+    printf("Hello from application processor %d! @ %p\n", cpu_num, &cpu_num);
 }
 
 static void init_thread(void *arg) {
