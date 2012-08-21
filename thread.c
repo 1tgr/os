@@ -168,6 +168,10 @@ void thread_sleep(unsigned milliseconds) {
     unlock_and_switch_to(new_current);
 }
 
+thread_t *thread_get_current() {
+    return current;
+}
+
 unsigned thread_get_quantum() {
     return quantum;
 }
