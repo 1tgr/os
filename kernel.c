@@ -169,19 +169,20 @@ void test_thread(void *arg);
 #define ATTR_BIG         0x40           /* ESP is used rather than SP */
 #define ATTR_DEFAULT     0x40           /* 32-bit code segment rather than 16-bit */
 
-static void set_descriptor(descriptor_t *item, uint32_t limit, uint8_t access, uint8_t attribs) {
-    item->base_l = 0;
-    item->base_m = 0;
-    item->base_h = 0;
+static void set_descriptor(descriptor_t *item, uint32_t base, uint32_t limit, uint8_t access, uint8_t attribs) {
+    item->base_l = base & 0xFFFF;
+    item->base_m = (base >> 16) & 0xFF;
+    item->base_h = base >> 24;
     item->limit = limit & 0xFFFF;
     item->attribs = attribs | ((limit >> 16) & 0x0F);
     item->access = access;
 }
 
-static void set_gdt(descriptor_t *gdt) {
-    set_descriptor(gdt + 0, 0, 0, 0);
-    set_descriptor(gdt + 1, 0xfffff, ACS_CODE | ACS_DPL_0, ATTR_DEFAULT | ATTR_GRANULARITY);
-    set_descriptor(gdt + 2, 0xfffff, ACS_DATA | ACS_DPL_0, ATTR_BIG | ATTR_GRANULARITY);
+static void set_gdt(descriptor_t *gdt, void *fs_base) {
+    set_descriptor(gdt + 0, 0, 0, 0, 0);
+    set_descriptor(gdt + 1, 0, 0xfffff, ACS_CODE | ACS_DPL_0, ATTR_DEFAULT | ATTR_GRANULARITY);
+    set_descriptor(gdt + 2, 0, 0xfffff, ACS_DATA | ACS_DPL_0, ATTR_BIG | ATTR_GRANULARITY);
+    set_descriptor(gdt + 3, (uint32_t) fs_base, 0xfffff, ACS_DATA | ACS_DPL_0, ATTR_BIG | ATTR_GRANULARITY);
 }
 
 static void set_idt(descriptor_int_t *d, void (*handler)()) {
@@ -196,7 +197,8 @@ static void set_idt(descriptor_int_t *d, void (*handler)()) {
 #define INT32_BYTES(l) ((l) >> 24) & 0xff, ((l) >> 16) & 0xff, ((l) >> 8) & 0xff, (l) & 0xff
 
 uint32_t i386_smp_lock_1, i386_smp_lock_2 = 1;
-volatile int i386_cpu_count = 1;
+uint32_t i386_cpu_count = 1;
+descriptor_t i386_gdt[4];
 
 static void i386_init_smp() {
     extern uint8_t trampoline[1], trampoline_locate[1], trampoline_end[1];
@@ -222,6 +224,7 @@ static void i386_init_smp() {
     thread_sleep(100);
 
     printf("Got %d CPUs\n", i386_cpu_count);
+    thread_set_cpu_count(i386_cpu_count);
     __sync_lock_release(&i386_smp_lock_2);
 }
 
@@ -234,10 +237,10 @@ static void init_thread(void *arg) {
     printf("Finished initialization\n");
 }
 
+cpu_t **cpus;
+
 void kmain(void) {
-    static descriptor_t gdt[3];
     static descriptor_int_t idt[256];
-    extern descriptor_t trampoline_gdt[1];
 
     for (int i = 0; i < 80 * 25; i++) {
         video[i * 2] = ' ';
@@ -245,25 +248,24 @@ void kmain(void) {
     }
 
     update_cursor(0);
-    set_gdt(gdt);
-    set_gdt(trampoline_gdt);
-    thread_init_reent();
+    thread_set_cpu_count(1);
+    set_gdt(i386_gdt, cpus[0]);
 
     {
         putchar('*');
         fflush(stdout);
 
-        uint32_t gdtr[] = { sizeof(gdt) << 16, (uint32_t) gdt };
+        uint32_t gdtr[] = { sizeof(i386_gdt) << 16, (uint32_t) i386_gdt };
         __asm(
             "lgdt %0\n"
             "ljmp %1,$reload_cs\n"
             "reload_cs:\n"
             "mov %2, %%ds\n"
             "mov %2, %%es\n"
-            "mov %2, %%fs\n"
             "mov %2, %%gs\n"
             "mov %2, %%ss\n"
-            : : "m" (((char *) gdtr)[2]), "i" (8), "r" (16)
+            "mov %3, %%fs\n"
+            : : "m" (((char *) gdtr)[2]), "i" (0x8), "r" (0x10), "r" (0x18)
         );
     }
 

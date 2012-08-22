@@ -43,7 +43,7 @@ trampoline_locate:
     mov %cs, %ax
     mov %ax, %ds
     movw $(3 * 8), trampoline_gdtr - trampoline(%ebx)
-    movl $trampoline_gdt, trampoline_gdtr + 2 - trampoline(%ebx)
+    movl $i386_gdt, trampoline_gdtr + 2 - trampoline(%ebx)
     lgdtl trampoline_gdtr - trampoline(%ebx) 
     mov $1, %eax
     mov %eax, %cr0
@@ -91,8 +91,3 @@ wait_smp_lock_2:
     call i386_ap_main
     cli
     jmp hang
-
-.global trampoline_gdt
-trampoline_gdt:
-    .fill 3, 8, 0 
-

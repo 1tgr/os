@@ -7,105 +7,88 @@
 #include "thread.h"
 #include "types.h"
 
-static thread_t idle, *current = &idle, *running_first = &idle, *running_last = &idle, *waiting_first, *waiting_last, *sleeping_first, *sleeping_last;
+static thread_t *runnable_first, *runnable_last, *waiting_first, *waiting_last, *sleeping_first, *sleeping_last;
 static lock_t lock;
 static unsigned uptime;
+cpu_t **cpus;
+static int cpu_count;
+
 const unsigned quantum = 10;
 
 #define LIST_ADD(list, obj, member) \
     { \
-        (obj)->member.prev = list##_last; \
-        (obj)->member.next = NULL; \
+        __typeof__ (obj) __obj = obj; \
+        __obj->member.prev = list##_last; \
+        __obj->member.next = NULL; \
         if (list##_last != NULL) \
-            list##_last->member.next = t; \
+            list##_last->member.next = __obj; \
         if (list##_first == NULL) \
-            list##_first = t; \
-        list##_last = t; \
+            list##_first = __obj; \
+        list##_last = __obj; \
     }
 
 #define LIST_REMOVE(list, obj, member) \
     { \
-        *((obj)->member.prev == NULL ? &list##_first : &(obj)->member.prev->member.next) = (obj)->member.next; \
-        *((obj)->member.next == NULL ? &list##_last  : &(obj)->member.next->member.prev) = (obj)->member.prev; \
+        __typeof__ (obj) __obj = obj; \
+        *(__obj->member.prev == NULL ? &list##_first : &__obj->member.prev->member.next) = __obj->member.next; \
+        *(__obj->member.next == NULL ? &list##_last  : &__obj->member.next->member.prev) = __obj->member.prev; \
     }
 
-static void unlock_and_switch_to(thread_t *t) {
-    if (setjmp(current->buf) == 0) {
-        current = t;
-        lock_leave(&lock);
-        longjmp(t->buf, 1);
-    }
-}
+static void unlock_and_switch(int is_exit) {
+    cpu_t *cpu = thread_get_current_cpu();
+    thread_t *old_current = cpu->current;
+    thread_t *volatile new_current = NULL;
 
-static thread_t *find_runnable() {
-    for (thread_t *t = waiting_first; t != NULL; t = t->u.waiting.next) {
-        if (t->u.waiting.inbox->data->count > 0)
-            return t;
-    }
-
-    for (thread_t *t = sleeping_first; t != NULL; t = t->u.sleeping.next) {
-        if (t->u.sleeping.until <= uptime) {
-            return t;
+    for (thread_t *t = waiting_first; new_current == NULL && t != NULL; t = t->u.waiting.next) {
+        if (t->u.waiting.inbox->data->count > 0) {
+            new_current = t;
+            LIST_REMOVE(waiting, new_current, u.waiting);
         }
     }
 
-    if (current->u.running.next != NULL)
-       return current->u.running.next;
-
-    return running_first;
-}
-
-static void ensure_running(thread_t *t) {
-    switch (t->state) {
-        case thread_running:
-            return;
-
-        case thread_waiting:
-            LIST_REMOVE(waiting, t, u.waiting);
-            break;
-
-        case thread_sleeping:
-            LIST_REMOVE(sleeping, t, u.sleeping);
-            break;
+    for (thread_t *t = sleeping_first; new_current == NULL && t != NULL; t = t->u.sleeping.next) {
+        if (t->u.sleeping.until <= uptime) {
+            new_current = t;
+            LIST_REMOVE(sleeping, new_current, u.sleeping);
+        }
     }
 
-    t->state = thread_running;
-    LIST_ADD(running, t, u.running);
-}
+    if (new_current == NULL) {
+        new_current = runnable_first;
+        LIST_REMOVE(runnable, new_current, u.runnable);
+    }
 
-static thread_t *ensure_not_running(thread_t *t) {
-    thread_t *new_current = t->u.running.next == NULL ? running_first : t->u.running.next;
-    LIST_REMOVE(running, t, u.running);
-    return new_current;
+    if (new_current == NULL)
+        new_current = &cpu->idle;
+
+    new_current->state = thread_current;
+
+    if (is_exit) {
+        old_current->state = thread_exited;
+    } else if (old_current->state == thread_current) {
+        old_current->state = thread_runnable;
+        LIST_ADD(runnable, old_current, u.runnable);
+    }
+
+    if (setjmp(old_current->buf) == 0) {
+        cpu->current = new_current;
+
+        if (is_exit)
+            obj_release(&old_current->obj);
+
+        lock_leave(&lock);
+        longjmp(new_current->buf, 1);
+    }
 }
 
 void thread_yield() {
-    thread_t *t;
     lock_enter(&lock);
-
-    {
-        t = find_runnable();
-        ensure_running(t);
-    }
-
-    unlock_and_switch_to(t);
+    unlock_and_switch(0);
 }
 
 void thread_exit() {
-    thread_t *old_current, *new_current;
     lock_enter(&lock);
-
-    {
-        old_current = current;
-        LIST_REMOVE(running, current, u.running);
-        new_current = find_runnable();
-        ensure_running(new_current);
-        current = new_current;
-    }
-
-    lock_leave(&lock);
-    obj_release(&old_current->obj);
-    longjmp(new_current->buf, 1);
+    unlock_and_switch(1);
 }
 
 thread_t *thread_start(void (*entry)(void*), void *arg) {
@@ -125,51 +108,51 @@ thread_t *thread_start(void (*entry)(void*), void *arg) {
     
     thread_t *t = obj_alloc(sizeof(*t));
     t->buf[0] = buf[0];
-    t->state = thread_running;
+    t->state = thread_runnable;
     _REENT_INIT_PTR(&t->reent);
 
     lock_enter(&lock);
-
-    {
-        LIST_ADD(running, t, u.running);
-    }
-
-    unlock_and_switch_to(t);
+    LIST_ADD(runnable, t, u.runnable);
+    unlock_and_switch(0);
     return t;
 }
 
 void thread_wait(struct inbox_t *inbox) {
-    thread_t *new_current;
     lock_enter(&lock);
 
     {
-        thread_t *t = current;
-        new_current = ensure_not_running(t);
+        thread_t *t = thread_get_current();
         t->state = thread_waiting;
         t->u.waiting.inbox = obj_retain(&inbox->obj);
         LIST_ADD(waiting, t, u.waiting);
     }
 
-    unlock_and_switch_to(new_current);
+    unlock_and_switch(0);
 }
 
 void thread_sleep(unsigned milliseconds) {
-    thread_t *new_current;
     lock_enter(&lock);
 
     {
-        thread_t *t = current;
-        new_current = ensure_not_running(t);
+        thread_t *t = thread_get_current();
         t->state = thread_sleeping;
         t->u.sleeping.until = uptime + milliseconds;
         LIST_ADD(sleeping, t, u.sleeping);
     }
 
-    unlock_and_switch_to(new_current);
+    unlock_and_switch(0);
 }
 
 thread_t *thread_get_current() {
+    thread_t *current;
+    __asm("movl %%fs:(4), %0" : "=a" (current));
     return current;
+}
+
+cpu_t *thread_get_current_cpu() {
+    cpu_t *self;
+    __asm("movl %%fs:(0), %0" : "=a" (self));
+    return self;
 }
 
 unsigned thread_get_quantum() {
@@ -195,17 +178,35 @@ static void timer_thread(void *arg) {
 }
 
 struct _reent *__getreent() {
-    return &current->reent;
-}
-
-void thread_init_reent() {
-    _REENT_INIT_PTR(&current->reent);
+    return &thread_get_current()->reent;
 }
 
 void thread_init() {
-    thread_yield();
-
     inbox_t *inbox = inbox_alloc();
     interrupt_subscribe(0, inbox, obj_alloc(sizeof(obj_t)));
     thread_start(timer_thread, inbox);
+}
+
+void thread_set_cpu_count(unsigned count) {
+    lock_enter(&lock);
+
+    {
+        if (cpus == NULL)
+            cpus = malloc(count * sizeof(*cpus));
+        else
+            cpus = realloc(cpus, count * sizeof(*cpus));;
+
+        for (unsigned i = cpu_count; i < cpu_count + count; i++) {
+            cpu_t *cpu = malloc(sizeof(*cpu));
+            cpu->self = cpu;
+            cpu->current = &cpu->idle;
+            _REENT_INIT_PTR(&cpu->idle.reent);
+            cpu->idle.state = thread_current;
+            cpus[i] = cpu;
+        }
+
+        cpu_count = count;
+    }
+
+    lock_leave(&lock);
 }
