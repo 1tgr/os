@@ -36,6 +36,7 @@ typedef struct thread_t {
 typedef struct cpu_t {
     struct cpu_t *self;
     thread_t *current;
+    int num;
     thread_t idle;
 } cpu_t;
 

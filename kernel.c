@@ -93,6 +93,7 @@ static void i386_init_timer(unsigned hz) {
 int write(int file, char *ptr, int len) {
     if (file == 1) {
         uint8_t *write = video + (y * 80 + x) * 2;
+        uint8_t colour = 7 + thread_get_current_cpu()->num;
 
         for (int i = 0; i < len; i++) {
             outb(0xe9, ptr[i]);
@@ -109,7 +110,7 @@ int write(int file, char *ptr, int len) {
 
                 default:
                     write[0] = ptr[i];
-                    write[1] = 7;
+                    write[1] = colour;
                     write += 2;
                     x++;
                     if (x >= 80) {
@@ -237,10 +238,16 @@ void i386_ap_main(int cpu_num) {
     __asm(
         "lgdt %0\n"
         "mov %1, %%fs\n"
+        "sti\n"
         : : "m" (((char *) gdtr)[2]), "r" (0x18)
     );
 
-    printf("Hello from application processor %d! @ stack = %p, cpu = %p\n", cpu_num, &cpu_num, thread_get_current_cpu());
+    cpu_t *cpu = thread_get_current_cpu();
+    printf("Hello from application processor %d! @ stack = %p, cpu = %p, current = %p\n", cpu_num, &cpu_num, cpu, cpu->current);
+    thread_yield();
+
+    while (1)
+        __asm("hlt");
 }
 
 static void init_thread(void *arg) {

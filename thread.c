@@ -65,7 +65,7 @@ static void unlock_and_switch(int is_exit) {
 
     if (is_exit) {
         old_current->state = thread_exited;
-    } else if (old_current->state == thread_current) {
+    } else if (old_current->state == thread_current && old_current != &cpu->idle) {
         old_current->state = thread_runnable;
         LIST_ADD(runnable, old_current, u.runnable);
     }
@@ -200,6 +200,7 @@ void thread_set_cpu_count(unsigned count) {
             cpu_t *cpu = malloc(sizeof(*cpu));
             cpu->self = cpu;
             cpu->current = &cpu->idle;
+            cpu->num = i;
             _REENT_INIT_PTR(&cpu->idle.reent);
             cpu->idle.state = thread_current;
             cpus[i] = cpu;
