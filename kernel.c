@@ -1,11 +1,11 @@
 #include <setjmp.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "inbox.h"
 #include "interrupt.h"
 #include "thread.h"
-#include "types.h"
 
 typedef struct {
 	uint32_t edi, esi, ebp, esp, ebx, edx, ecx, eax;
@@ -182,11 +182,11 @@ static void set_gdt(descriptor_t *gdt, void *fs_base) {
     set_descriptor(gdt + 0, 0, 0, 0, 0);
     set_descriptor(gdt + 1, 0, 0xfffff, ACS_CODE | ACS_DPL_0, ATTR_DEFAULT | ATTR_GRANULARITY);
     set_descriptor(gdt + 2, 0, 0xfffff, ACS_DATA | ACS_DPL_0, ATTR_BIG | ATTR_GRANULARITY);
-    set_descriptor(gdt + 3, (uint32_t) fs_base, 0xfffff, ACS_DATA | ACS_DPL_0, ATTR_BIG | ATTR_GRANULARITY);
+    set_descriptor(gdt + 3, (uintptr_t) fs_base, 0xfffff, ACS_DATA | ACS_DPL_0, ATTR_BIG | ATTR_GRANULARITY);
 }
 
 static void set_idt(descriptor_int_t *d, void (*handler)()) {
-    uint32_t offset = (uint32_t) handler;
+    uint32_t offset = (uintptr_t) handler;
     d->offset_l = offset;
     d->selector = 8;
     d->param_cnt = 0;
@@ -216,14 +216,14 @@ static void i386_init_smp() {
     uint8_t *trampoline_locate_low = trampoline_low + (trampoline_locate - trampoline);
     *(void**) (trampoline_locate_low + 2) = trampoline_low;
 
-    uint32_t trampoline_low8 = (uint32_t) trampoline_low / 4096;
+    uint32_t trampoline_low8 = (uintptr_t) trampoline_low / 4096;
     *ICR_LOW = 0xc4600 | trampoline_low8;
     thread_sleep(1); // should be 200 microseconds
 
     *ICR_LOW = 0xc4600 | trampoline_low8;
     thread_sleep(100);
 
-    printf("Got %d CPUs\n", i386_cpu_count);
+    printf("Got %d CPUs\n", (int) i386_cpu_count);
     thread_set_cpu_count(i386_cpu_count);
     __sync_lock_release(&i386_smp_lock_2);
 }
@@ -255,7 +255,7 @@ void kmain(void) {
         putchar('*');
         fflush(stdout);
 
-        uint32_t gdtr[] = { sizeof(i386_gdt) << 16, (uint32_t) i386_gdt };
+        uint32_t gdtr[] = { sizeof(i386_gdt) << 16, (uintptr_t) i386_gdt };
         __asm(
             "lgdt %0\n"
             "ljmp %1,$reload_cs\n"
@@ -286,7 +286,7 @@ void kmain(void) {
         while (i < 256)
             set_idt(&idt[i++], interrupt_30);
 
-        uint32_t idtr[] = { sizeof(idt) << 16, (uint32_t) idt };
+        uint32_t idtr[] = { sizeof(idt) << 16, (uintptr_t) idt };
         __asm("lidt %0" : : "m" (((char *) idtr)[2]));
     }
 

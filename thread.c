@@ -1,11 +1,11 @@
 #include <sys/reent.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "inbox.h"
 #include "interrupt.h"
 #include "lock.h"
 #include "thread.h"
-#include "types.h"
 
 static thread_t *runnable_first, *runnable_last, *waiting_first, *waiting_last, *sleeping_first, *sleeping_last;
 static lock_t lock;
@@ -102,8 +102,8 @@ thread_t *thread_start(void (*entry)(void*), void *arg) {
 
     jmp_buf buf = { {
         .eax = 0, .ebx = 0, .ecx = 0, .edx = 0, .esi = 0, .edi = 0, .ebp = 0,
-        .esp = (uint32_t) stack_end,
-        .eip = (uint32_t) entry,
+        .esp = (uintptr_t) stack_end,
+        .eip = (uintptr_t) entry,
     } };
     
     thread_t *t = obj_alloc(sizeof(*t));

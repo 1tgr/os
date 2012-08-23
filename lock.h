@@ -1,7 +1,7 @@
 #ifndef LOCK_H
 #define LOCK_H
 
-#include "types.h"
+#include <stdint.h>
 
 typedef struct {
     int count;
