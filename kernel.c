@@ -199,6 +199,7 @@ static void set_idt(descriptor_int_t *d, void (*handler)()) {
 uint32_t i386_smp_lock_1, i386_smp_lock_2 = 1;
 uint32_t i386_cpu_count = 1;
 descriptor_t i386_gdt[4];
+extern cpu_t **cpus;
 
 static void i386_init_smp() {
     extern uint8_t trampoline[1], trampoline_locate[1], trampoline_end[1];
@@ -229,15 +230,23 @@ static void i386_init_smp() {
 }
 
 void i386_ap_main(int cpu_num) {
-    printf("Hello from application processor %d! @ %p\n", cpu_num, &cpu_num);
+    descriptor_t gdt_copy[sizeof(i386_gdt) / sizeof(*i386_gdt)];
+    set_gdt(gdt_copy, cpus[cpu_num]);
+
+    uint32_t gdtr[] = { sizeof(gdt_copy) << 16, (uintptr_t) gdt_copy };
+    __asm(
+        "lgdt %0\n"
+        "mov %1, %%fs\n"
+        : : "m" (((char *) gdtr)[2]), "r" (0x18)
+    );
+
+    printf("Hello from application processor %d! @ stack = %p, cpu = %p\n", cpu_num, &cpu_num, thread_get_current_cpu());
 }
 
 static void init_thread(void *arg) {
     i386_init_smp();
     printf("Finished initialization\n");
 }
-
-cpu_t **cpus;
 
 void kmain(void) {
     static descriptor_int_t idt[256];

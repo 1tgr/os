@@ -75,13 +75,11 @@ acquire_smp_lock_1:
     mov %ebx, (i386_cpu_count)
     dec %ebx
     movl $0, i386_smp_lock_1
-    mov $i386_smp_lock_2, %edx
 
 wait_smp_lock_2:
-    mov $0, %eax
-    xchg %eax, (%edx)
+    mov (i386_smp_lock_2), %eax
     test %eax, %eax
-    jne wait_smp_lock_2
+    jnz wait_smp_lock_2
 
     mov %ebx, %eax
     shl $11, %eax
