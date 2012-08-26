@@ -5,6 +5,7 @@
 #include <string.h>
 #include "inbox.h"
 #include "interrupt.h"
+#include "screen.h"
 #include "thread.h"
 
 typedef struct {
@@ -42,18 +43,8 @@ typedef struct {
 	uint16_t offset_h;
 } __attribute__((packed)) descriptor_int_t;
 
-static uint8_t* const video = (uint8_t*)0xb8000;
-static int x, y;
-
 static void outb(uint16_t port, uint8_t val) {
     __asm("outb %0, %1" : : "a"(val), "Nd"(port));
-}
-
-static void update_cursor(int position) {
-    outb(0x3D4, 0x0F);
-    outb(0x3D5, position);
-    outb(0x3D4, 0x0E);
-    outb(0x3D5, position >> 8);
 }
 
 #define PIC_M 0x20
@@ -88,46 +79,6 @@ static void i386_init_timer(unsigned hz) {
     outb(0x43, 0x36);
     outb(0x40, n & 0xff);
     outb(0x40, n >> 8);
-}
-
-int write(int file, char *ptr, int len) {
-    if (file == 1) {
-        uint8_t *write = video + (y * 80 + x) * 2;
-        uint8_t colour = 7 + thread_get_current_cpu()->num;
-
-        for (int i = 0; i < len; i++) {
-            outb(0xe9, ptr[i]);
-
-            switch (ptr[i]) {
-                case '\n':
-                    x = 0;
-                    y++;
-                    if (y >= 25) {
-                        y = 0;
-                    }
-                    write = video + (y * 80 + x) * 2;
-                    break;
-
-                default:
-                    write[0] = ptr[i];
-                    write[1] = colour;
-                    write += 2;
-                    x++;
-                    if (x >= 80) {
-                        x = 0;
-                        y++;
-                        if (y >= 25) {
-                            y = 0;
-                        }
-                    }
-                    break;
-            }
-        }
-
-        update_cursor((write - video) / 2);
-        return len;
-    } else
-        return -1;
 }
 
 void test_thread(void *arg);
@@ -258,12 +209,7 @@ static void init_thread(void *arg) {
 void kmain(void) {
     static descriptor_int_t idt[256];
 
-    for (int i = 0; i < 80 * 25; i++) {
-        video[i * 2] = ' ';
-        video[i * 2 + 1] = 7;
-    }
-
-    update_cursor(0);
+    screen_clear();
     thread_set_cpu_count(1);
     set_gdt(i386_gdt, cpus[0]);
 

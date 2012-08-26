@@ -2,7 +2,7 @@ CC=i386-elf-gcc-4.3.2
 LD=i386-elf-ld
 CFLAGS=-g -O2 -march=i486 -Wall -Wextra -Werror -Wno-unused-parameter -fno-builtin -fno-stack-protector -nostartfiles -nodefaultlibs -std=c99 -U __unix__ -D __DYNAMIC_REENT__ -I newlib/i386-elf/include
 OBJDIR=obj
-OBJECTS=loader.o isr.o array.o inbox.o interrupt.o kernel.o lock.o obj.o test.o thread.o cutest/CuTest.o
+OBJECTS=loader.o isr.o array.o inbox.o interrupt.o kernel.o lock.o obj.o screen.o test.o thread.o cutest/CuTest.o
 OBJECTS_IN_DIR=$(addprefix $(OBJDIR)/, $(OBJECTS))
 
 all: obj/kernel.bin
