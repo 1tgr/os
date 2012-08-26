@@ -5,6 +5,7 @@
 #include <string.h>
 #include "inbox.h"
 #include "interrupt.h"
+#include "lock.h"
 #include "screen.h"
 #include "thread.h"
 
@@ -50,11 +51,26 @@ static void outb(uint16_t port, uint8_t val) {
 #define PIC_M 0x20
 #define PIC_S 0xA0
 
+volatile uint32_t *const EOI        = (volatile uint32_t *) 0xfee000b0;
+volatile uint32_t *const SVR        = (volatile uint32_t *) 0xfee000f0;
+volatile uint32_t *const LVT_TMR    = (volatile uint32_t *) 0xfee00320;
+volatile uint32_t *const ICR_LOW    = (volatile uint32_t *) 0xfee00300;
+volatile uint32_t *const TMRINITCNT = (volatile uint32_t *) 0xfee00380;
+volatile uint32_t *const TMRDIV     = (volatile uint32_t *) 0xfee003e0;
+
 void i386_isr(i386_context_t context) {
+    uint8_t *p = ((uint8_t *) 0xb8000) + (80 - thread_get_current_cpu()->num - 1) * 2;
     if (context.error == (uint32_t) -1) {
+        *p = ~*p;
+
+        if (context.interrupt > 0) {
+            printf("Interrupt %d\n", (int) context.interrupt);
+        }
+
         __asm("sti");
         outb(PIC_M, 0x20);
         outb(PIC_S, 0x20);
+        *EOI = 0;
         interrupt_deliver(context.interrupt);
         __asm("cli");
     }
@@ -72,13 +88,8 @@ static void i386_init_pic(uint8_t master_vector, uint8_t slave_vector) {
 
     outb(PIC_M + 1, 0);                 // enable all IRQs on master
     outb(PIC_S + 1, 0);                 // enable all IRQs on slave
-}
 
-static void i386_init_timer(unsigned hz) {
-    uint16_t n = 3579545L / (hz * 3);
-    outb(0x43, 0x36);
-    outb(0x40, n & 0xff);
-    outb(0x40, n >> 8);
+    outb(PIC_M + 1, 1);                 // mask IRQ0 = disable timer
 }
 
 void test_thread(void *arg);
@@ -137,7 +148,7 @@ static void set_gdt(descriptor_t *gdt, void *fs_base) {
     set_descriptor(gdt + 3, (uintptr_t) fs_base, 0xfffff, ACS_DATA | ACS_DPL_0, ATTR_BIG | ATTR_GRANULARITY);
 }
 
-static void set_idt(descriptor_int_t *d, void (*handler)()) {
+static void set_idt_descriptor(descriptor_int_t *d, void (*handler)()) {
     uint32_t offset = (uintptr_t) handler;
     d->offset_l = offset;
     d->selector = 8;
@@ -146,20 +157,42 @@ static void set_idt(descriptor_int_t *d, void (*handler)()) {
     d->offset_h = offset >> 16;
 }
 
+static void set_idt(descriptor_int_t *idt) {
+    int i = 0;
+
+#define exception(n) set_idt_descriptor(&idt[i++], exception_##n);
+#define irq(n) set_idt_descriptor(&idt[i++], irq_##n);
+#define interrupt(n) set_idt_descriptor(&idt[i++], interrupt_##n);
+#include "interrupt_handlers.h"
+#undef exception
+#undef irq
+#undef interrupt
+
+    while (i < 256)
+        set_idt_descriptor(&idt[i++], interrupt_30);
+
+}
+
 #define INT32_BYTES(l) ((l) >> 24) & 0xff, ((l) >> 16) & 0xff, ((l) >> 8) & 0xff, (l) & 0xff
 
 uint32_t i386_smp_lock_1, i386_smp_lock_2 = 1;
 uint32_t i386_cpu_count = 1;
 descriptor_t i386_gdt[4];
+static descriptor_int_t idt[256];
+static uint32_t idtr[] = { sizeof(idt) << 16, (uintptr_t) idt };
 extern cpu_t **cpus;
+
+static void i386_init_timer() {
+    *SVR = *SVR | 0x100 | 39;
+    *LVT_TMR = 32 | 0x20000;
+    *TMRINITCNT = 10000000; // TODO calibrate APIC counter to bus frequency
+	*TMRDIV = 3;
+}
 
 static void i386_init_smp() {
     extern uint8_t trampoline[1], trampoline_locate[1], trampoline_end[1];
-    volatile uint32_t *SVR     = (volatile uint32_t *) 0xfee000f0;
-    volatile uint32_t *ICR_LOW = (volatile uint32_t *) 0xfee00300;
     printf("Hello from bootstrap processor!\n");
 
-    *SVR = *SVR | 0x100;
     *ICR_LOW = 0xc4500;
     thread_sleep(10);
 
@@ -189,12 +222,14 @@ void i386_ap_main(int cpu_num) {
     __asm(
         "lgdt %0\n"
         "mov %1, %%fs\n"
+        "lidt %2\n"
         "sti\n"
-        : : "m" (((char *) gdtr)[2]), "r" (0x18)
+        : : "m" (((char *) gdtr)[2]), "r" (0x18), "m" (((char *) idtr)[2])
     );
 
     cpu_t *cpu = thread_get_current_cpu();
     printf("Hello from application processor %d! @ stack = %p, cpu = %p, current = %p\n", cpu_num, &cpu_num, cpu, cpu->current);
+    i386_init_timer();
     thread_yield();
 
     while (1)
@@ -204,61 +239,34 @@ void i386_ap_main(int cpu_num) {
 static void init_thread(void *arg) {
     i386_init_smp();
     printf("Finished initialization\n");
+    thread_start(test_thread, NULL);
 }
 
 void kmain(void) {
-    static descriptor_int_t idt[256];
-
     screen_clear();
     thread_set_cpu_count(1);
     set_gdt(i386_gdt, cpus[0]);
+    set_idt(idt);
 
-    {
-        putchar('*');
-        fflush(stdout);
-
-        uint32_t gdtr[] = { sizeof(i386_gdt) << 16, (uintptr_t) i386_gdt };
-        __asm(
-            "lgdt %0\n"
-            "ljmp %1,$reload_cs\n"
-            "reload_cs:\n"
-            "mov %2, %%ds\n"
-            "mov %2, %%es\n"
-            "mov %2, %%gs\n"
-            "mov %2, %%ss\n"
-            "mov %3, %%fs\n"
-            : : "m" (((char *) gdtr)[2]), "i" (0x8), "r" (0x10), "r" (0x18)
-        );
-    }
-
-    {
-        putchar('*');
-        fflush(stdout);
-
-        int i = 0;
-
-#define exception(n) set_idt(&idt[i++], exception_##n);
-#define irq(n) set_idt(&idt[i++], irq_##n);
-#define interrupt(n) set_idt(&idt[i++], interrupt_##n);
-#include "interrupt_handlers.h"
-#undef exception
-#undef irq
-#undef interrupt
-
-        while (i < 256)
-            set_idt(&idt[i++], interrupt_30);
-
-        uint32_t idtr[] = { sizeof(idt) << 16, (uintptr_t) idt };
-        __asm("lidt %0" : : "m" (((char *) idtr)[2]));
-    }
+    uint32_t gdtr[] = { sizeof(i386_gdt) << 16, (uintptr_t) i386_gdt };
+    __asm(
+        "lgdt %0\n"
+        "ljmp %1,$reload_cs\n"
+        "reload_cs:\n"
+        "mov %2, %%ds\n"
+        "mov %2, %%es\n"
+        "mov %2, %%gs\n"
+        "mov %2, %%ss\n"
+        "mov %3, %%fs\n"
+        "lidt %4\n"
+        : : "m" (((char *) gdtr)[2]), "i" (0x8), "r" (0x10), "r" (0x18), "m" (((char *) idtr)[2])
+    );
 
     i386_init_pic(32, 40);
-    i386_init_timer(1000 / thread_get_quantum());
     thread_init();
-    puts("*");
     __asm("sti");
+    i386_init_timer();
     thread_start(init_thread, NULL);
-    thread_start(test_thread, NULL);
 
     while (1)
         __asm("hlt");
