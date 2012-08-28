@@ -165,13 +165,16 @@ enum {
 };
 
 static void thrash_thread(void *arg) {
+    static lock_t lock;
     void **args = arg;
-    volatile int *n = args[0];
+    int *n = args[0];
     inbox_t *inbox = args[1];
     obj_t *finished = args[2];
 
     for (int i = 0; i < thrash_count; i++) {
+        lock_enter(&lock);
         (*n)++;
+        lock_leave(&lock);
     }
 
     inbox_post(inbox, finished);
