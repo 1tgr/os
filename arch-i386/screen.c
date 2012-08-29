@@ -1,7 +1,7 @@
 #include <stdint.h>
-#include "lock.h"
-#include "screen.h"
-#include "thread.h"
+#include "../kernel/lock.h"
+#include "../kernel/screen.h"
+#include "../kernel/thread.h"
 
 static lock_t lock;
 static uint8_t* const video = (uint8_t*)0xb8000;

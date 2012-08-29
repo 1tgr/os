@@ -3,11 +3,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "inbox.h"
-#include "interrupt.h"
-#include "lock.h"
-#include "screen.h"
-#include "thread.h"
+#include "../kernel/inbox.h"
+#include "../kernel/interrupt.h"
+#include "../kernel/lock.h"
+#include "../kernel/screen.h"
+#include "../kernel/thread.h"
 
 typedef struct {
 	uint32_t edi, esi, ebp, esp, ebx, edx, ecx, eax;

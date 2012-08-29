@@ -1,0 +1,31 @@
+OBJECTS_IN_DIR=$(addprefix $(OBJDIR)/, $(OBJECTS))
+LIBS_IN_DIR=$(foreach lib, $(LIBS), $(lib)/obj/$(TARGET)/lib$(lib).a)
+
+clean:
+	rm -r $(OBJDIR)
+	for lib in $(LIBS); do $(MAKE) -C $$lib clean; done
+
+$(OBJDIR)/%.d: %.S | $(OBJDIR)
+	printf $(OBJDIR)/ > $@
+	$(CC) $(CFLAGS) $(CPPFLAGS) -M -o - $< >> $@ || rm $@
+
+$(OBJDIR)/%.d: %.c | $(OBJDIR)
+	printf $(OBJDIR)/ > $@
+	$(CC) $(CFLAGS) $(CPPFLAGS) -M -o - $< >> $@ || rm $@
+
+$(OBJDIR)/%.o: %.S | $(OBJDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
+
+$(OBJDIR)/%.o: %.c | $(OBJDIR)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
+
+$(OBJDIR)/%.a: $(OBJECTS_IN_DIR) | $(OBJDIR)
+	$(AR) r $@ $^
+
+$(OBJDIR):
+	mkdir -p $(OBJDIR)
+
+$(LIBS_IN_DIR):
+	for lib in $(LIBS); do $(MAKE) -C $$lib; done
+
+include $(OBJECTS_IN_DIR:.o=.d)

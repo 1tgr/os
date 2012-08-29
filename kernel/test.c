@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include "array.h"
-#include "cutest/CuTest.h"
+#include "../cutest/CuTest.h"
 #include "inbox.h"
 #include "lock.h"
 #include "thread.h"
