@@ -1,6 +1,8 @@
 OBJECTS_IN_DIR=$(addprefix $(OBJDIR)/, $(OBJECTS))
 LIBS_IN_DIR=$(foreach lib, $(LIBS), $(lib)/obj/$(TARGET)/lib$(lib).a)
 
+.PHONY: $(LIBS) $(LIBS_IN_DIR)
+
 clean:
 	rm -r $(OBJDIR)
 	for lib in $(LIBS); do $(MAKE) -C $$lib clean; done
@@ -25,7 +27,9 @@ $(OBJDIR)/%.a: $(OBJECTS_IN_DIR) | $(OBJDIR)
 $(OBJDIR):
 	mkdir -p $(OBJDIR)
 
-$(LIBS_IN_DIR):
-	for lib in $(LIBS); do $(MAKE) -C $$lib; done
+$(LIBS):
+	$(MAKE) -C $@
+
+$(LIBS_IN_DIR): $(LIBS)
 
 include $(OBJECTS_IN_DIR:.o=.d)

@@ -1,3 +1,4 @@
+#include <sys/reent.h>
 #include <stdint.h>
 #include "../kernel/lock.h"
 #include "../kernel/screen.h"
@@ -32,15 +33,16 @@ void screen_clear() {
     lock_leave(&lock);
 }
 
-int write(int file, char *ptr, int len) {
+_ssize_t _write_r(struct _reent *reent, int file, const void *ptr, size_t len) {
     if (file == 1) {
         uint8_t colour = 7 + thread_get_current_cpu()->num;
+        const char *s = ptr;
 
-        for (int i = 0; i < len; i++) {
-            outb(0xe9, ptr[i]);
+        for (size_t i = 0; i < len; i++) {
+            outb(0xe9, s[i]);
             lock_enter(&lock);
 
-            switch (ptr[i]) {
+            switch (s[i]) {
                 case '\n':
                     x = 0;
                     y++;
@@ -51,7 +53,7 @@ int write(int file, char *ptr, int len) {
 
                 default: {
                     uint8_t *at = video + (y * 80 + x) * 2;
-                    at[0] = ptr[i];
+                    at[0] = s[i];
                     at[1] = colour;
                     x++;
                     if (x >= 80) {

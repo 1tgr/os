@@ -13,10 +13,16 @@ static rlock_t malloc_lock;
 
 void lock_enter(lock_t *l) {
     uint32_t flags;
+
+#if defined(ARCH_i386)
     __asm(
         "pushf\n"
         "popl %0\n"
         "cli" : "=g" (flags));
+#elif defined(ARCH_arm)
+    __asm("mrs %0, CPSR" : "=r" (flags));
+    __asm("msr CPSR_cxsf, %0" : : "r" (flags | 0xc0));
+#endif
 
     while (__sync_lock_test_and_set(&l->count, 1))
         ;
@@ -27,9 +33,14 @@ void lock_enter(lock_t *l) {
 void lock_leave(lock_t *l) {
     uint32_t flags = l->flags;
     __sync_lock_release(&l->count);
+
+#if defined(ARCH_i386)
     __asm(
         "pushl %0\n"
         "popf" : : "g" (flags));
+#elif defined(ARCH_arm)
+    __asm("msr CPSR_cxsf, %0" : : "r" (flags));
+#endif
 }
 
 void rlock_enter(rlock_t *lock) {

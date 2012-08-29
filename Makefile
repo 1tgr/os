@@ -3,6 +3,12 @@ include $(ROOT)/make.conf
 
 LIBS=arch-$(ARCH) kernel cutest
 
+ifeq ($(ARCH), arm)
+	LIBPATH=$(ROOT)/newlib/$(TARGET)/lib/fpu
+else
+	LIBPATH=$(ROOT)/newlib/$(TARGET)/lib
+endif
+
 all: $(OBJDIR)/kernel.bin
 
 grub.img.gz: stage1 stage2
@@ -19,13 +25,18 @@ $(OBJDIR)/floppy.img: grub.img.gz $(OBJDIR)/kernel.bin menu.lst
 qemu: qemu-$(ARCH)
 
 qemu-arm: $(OBJDIR)/kernel.bin
-	qemu-system-arm -cpu arm1176 -m 256 -M versatilepb -kernel $<
+	qemu-system-arm -monitor stdio -cpu arm1176 -m 256 -M versatilepb -kernel $<
 
 qemu-i386: $(OBJDIR)/floppy.img
 	qemu-system-i386 -debugcon stdio -smp 4 -fda $<
 
 include make.actions
 
+LINKER+=-lnosys
+
 $(OBJDIR)/kernel.bin: linker.ld $(OBJECTS_IN_DIR) $(LIBS_IN_DIR) | $(OBJDIR)
-	$(LD) -L $(ROOT)/newlib/$(TARGET)/lib -T linker.ld -o $@ $^ -lc -lnosys -lm
+	$(LD) -L $(LIBPATH) -T linker.ld -o $@ $(OBJECTS_IN_DIR) $(LIBS_IN_DIR) $(LINKER) $(shell $(CC) -print-libgcc-file-name)
+
+$(OBJDIR)/kernel.txt: $(OBJDIR)/kernel.bin
+	$(OBJDUMP) -S $< > $@
 

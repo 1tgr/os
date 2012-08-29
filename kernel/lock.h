@@ -8,7 +8,6 @@ typedef struct {
     uint32_t flags;
 } lock_t;
 
-int exchange(int value, int *with);
 void lock_enter(lock_t *l);
 void lock_leave(lock_t *l);
 

@@ -15,6 +15,10 @@ static int cpu_count;
 
 const unsigned quantum = 10;
 
+#if !defined(SMP)
+static cpu_t cpu;
+#endif
+
 #define LIST_ADD(list, obj, member) \
     { \
         __typeof__ (obj) __obj = obj; \
@@ -100,11 +104,15 @@ thread_t *thread_start(void (*entry)(void*), void *arg) {
     stack_end--;
     *stack_end = thread_exit;
 
+#if defined (__i386__)
     jmp_buf buf = { {
         .eax = 0, .ebx = 0, .ecx = 0, .edx = 0, .esi = 0, .edi = 0, .ebp = 0,
         .esp = (uintptr_t) stack_end,
         .eip = (uintptr_t) entry,
     } };
+#else
+    jmp_buf buf = { 0 };
+#endif
     
     thread_t *t = obj_alloc(sizeof(*t));
     t->buf[0] = buf[0];
@@ -144,15 +152,23 @@ void thread_sleep(unsigned milliseconds) {
 }
 
 thread_t *thread_get_current() {
+#if defined(__i386__)
     thread_t *current;
     __asm("movl %%fs:(4), %0" : "=a" (current));
     return current;
+#else
+    return thread_get_current_cpu()->current;
+#endif
 }
 
 cpu_t *thread_get_current_cpu() {
+#if defined(__i386__)
     cpu_t *self;
     __asm("movl %%fs:(0), %0" : "=a" (self));
     return self;
+#else
+    return &cpu;
+#endif
 }
 
 unsigned thread_get_quantum() {
