@@ -15,10 +15,6 @@ static int cpu_count;
 
 const unsigned quantum = 10;
 
-#if !defined(SMP)
-static cpu_t cpu;
-#endif
-
 #define LIST_ADD(list, obj, member) \
     { \
         __typeof__ (obj) __obj = obj; \
@@ -167,7 +163,7 @@ cpu_t *thread_get_current_cpu() {
     __asm("movl %%fs:(0), %0" : "=a" (self));
     return self;
 #else
-    return &cpu;
+    return cpus[0];
 #endif
 }
 

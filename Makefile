@@ -2,12 +2,7 @@ ROOT=.
 include $(ROOT)/make.conf
 
 LIBS=arch-$(ARCH) kernel cutest
-
-ifeq ($(ARCH), arm)
-	LIBPATH=$(ROOT)/newlib/$(TARGET)/lib/fpu
-else
-	LIBPATH=$(ROOT)/newlib/$(TARGET)/lib
-endif
+LIBPATH=$(ROOT)/newlib/$(TARGET)/lib
 
 all: $(OBJDIR)/kernel.bin
 

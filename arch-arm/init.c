@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/reent.h>
+#include "../kernel/thread.h"
 
 static unsigned int *const frameBuffer = (void *) (2 * 1024 * 1024);
 extern const char _binary_font0_bin_start[];
@@ -52,10 +53,6 @@ int kmain(void) {
     ptr2[2] = 0x071F1800;
     ptr2[4] = (unsigned int) frameBuffer; /* base addr of frame buffer */
     ptr2[6] = 0x82b; /* control bits */
-    /*
-    char s[100] = "hello world\n";
-    //sprintf(s, "hello world\n");
-    return fwrite(s, 1, strlen(s), stdout);
-    */
-    return puts("hello world");
+    thread_set_cpu_count(1);
+    return printf("Hello world\n");
 }
